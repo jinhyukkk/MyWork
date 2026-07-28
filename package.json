@@ -1,0 +1,15 @@
+{
+  "name": "mywork",
+  "version": "1.0.0",
+  "description": "개인 업무 관리 대시보드 (Express + node:sqlite)",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "express": "^5.1.0"
+  }
+}
