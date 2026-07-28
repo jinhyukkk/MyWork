@@ -32,7 +32,8 @@
   .cat-btn { all:unset; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; color:#A7AEBB; padding:3px 0; }
   .cat-btn:hover { color:#fff; }
   .cat-btn.on { color:#fff; }
-  .cat-btn .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cat-btn .cdot { width:7px; height:7px; border-radius:2px; flex:none; }
+  .cat-btn .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .cat-btn .n { font-variant-numeric:tabular-nums; color:#6D7585; }
 
   /* ── 헤더 ── */
@@ -99,10 +100,16 @@
   .empty { padding:48px; text-align:center; color:#98A0AB; font-size:13px; }
 
   /* ── 보드 ── */
-  .board { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; align-items:start; }
+  /* 열 개수는 진행상황 설정에 따라 인라인으로 지정된다 */
+  .board { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; align-items:start; overflow-x:auto; }
   .bcol { background:#EEF0F4; border:1px solid #E3E6EB; border-radius:10px; padding:10px; min-height:420px; display:flex; flex-direction:column; gap:9px; }
   .bcol.drag { border-color:#B7C7EC; }
-  .bcol .head { display:flex; align-items:center; gap:8px; padding:2px 4px 6px; }
+  .bcol.dragging { opacity:.45; }
+  /* 열 삽입선은 좌우로 — 체크리스트(위아래)와 방향만 다르다 */
+  .bcol.over { box-shadow:inset 3px 0 0 #2F6FED; }
+  .bcol.over-b { box-shadow:inset -3px 0 0 #2F6FED; }
+  .bcol .head { display:flex; align-items:center; gap:8px; padding:2px 4px 6px; cursor:grab; }
+  .bcol .head:active { cursor:grabbing; }
   .bcol .head .dot { width:7px; height:7px; border-radius:50%; }
   .bcol .head .l { font-size:12.5px; font-weight:650; }
   .bcol .head .n { font-size:11px; color:#6B7280; background:#DFE3E9; padding:1px 7px; border-radius:10px; font-variant-numeric:tabular-nums; }
@@ -169,15 +176,10 @@
   .btn-save:hover { background:#1B4FC0; }
   .btn-del { all:unset; cursor:pointer; height:36px; padding:0 14px; border-radius:7px; font-size:12.5px; font-weight:600; color:#D64545; }
   .btn-del:hover { background:#FDECEC; }
-  .cat-edit { display:flex; align-items:flex-end; gap:8px; flex-wrap:wrap; }
-  .cat-edit .field { flex:1; }
-  .cat-edit .field input { height:34px; font-size:12.5px; background:#FAFBFC; }
   .btn-sm { all:unset; cursor:pointer; flex:none; white-space:nowrap; height:34px; line-height:32px; padding:0 14px; border:1px solid #DDE1E7; border-radius:7px; font-size:12.5px; font-weight:600; color:#3C424C; }
   .btn-sm:hover { background:#F1F3F6; border-color:#2F6FED; color:#2F6FED; }
   .btn-sm[disabled] { cursor:default; color:#B4BBC5; background:#FAFBFC; }
   .btn-sm[disabled]:hover { background:#FAFBFC; border-color:#DDE1E7; color:#B4BBC5; }
-  .btn-sm.danger { font-weight:400; color:#8A919C; }
-  .btn-sm.danger:hover { background:#FDECEC; border-color:#D64545; color:#D64545; }
   .err { font-size:12px; color:#D64545; }
 
   /* ── 체크리스트 ── */
@@ -237,13 +239,10 @@
       <input id="q" placeholder="태스크 검색">
       <select id="f-category"></select>
       <select id="f-type"></select>
-      <select id="f-priority">
-        <option value="all">우선순위: 전체</option>
-        <option value="High">High</option><option value="Medium">Medium</option><option value="Low">Low</option>
-      </select>
+      <select id="f-priority"></select>
       <button class="toggle" id="hide-done" title="완료된 태스크를 목록·보드·캘린더·타임라인에서 감춥니다">완료 숨김</button>
       <button class="toggle" id="open-archive" title="오래된 완료 태스크를 보관하거나 복원합니다">정리</button>
-      <button class="toggle" id="open-settings" title="업무유형·진행상황·우선순위를 관리합니다">설정</button>
+      <button class="toggle" id="open-settings" title="업무유형·진행상황·우선순위·업무분류를 관리합니다">설정</button>
       <button class="btn-primary" id="new-task">＋ 새 태스크</button>
     </header>
     <div id="viewport"></div>

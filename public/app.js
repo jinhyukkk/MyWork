@@ -3,13 +3,15 @@ import { checklist, weightedPct, checklistTotals } from './progress.js';
 
 const DAY = 86400000;
 const VIEWS = { summary: '요약', list: '목록', board: '보드', calendar: '캘린더', timeline: '타임라인' };
-const KIND_LABEL = { type: '업무유형', status: '진행상황', priority: '우선순위' };
+const KIND_LABEL = { type: '업무유형', status: '진행상황', priority: '우선순위', category: '업무분류' };
+const META_KEY = { type: 'types', status: 'statuses', priority: 'priorities', category: 'categories' };
 
 // 색상은 전부 설정(options)에서 온다. 배경은 같은 색의 10% 투명도 — 색을 두 번 고르지 않도록.
 const TYPE_COLOR = (t) => S.opt.type.get(t)?.color ?? '#6B7280';
 const TYPE_BG = (t) => `${TYPE_COLOR(t)}1A`;
 const STATUS_COLOR = (s) => S.opt.status.get(s)?.color ?? '#6B7280';
 const STATUS_BG = (s) => `${STATUS_COLOR(s)}1A`;
+const CAT_COLOR = (c) => S.opt.category.get(c)?.color ?? '#6B7280';
 const PR_COLOR = (p) => S.opt.priority.get(p)?.color ?? '#6B7280';
 const PR_RANK = (p) => S.opt.priority.get(p)?.sort ?? 99;
 const isDone = (s) => S.doneSet.has(s);
@@ -25,13 +27,13 @@ const TODAY = iso(today);
 
 const S = {
   tasks: [], categories: [], types: [], statuses: [], priorities: [],
-  opt: { type: new Map(), status: new Map(), priority: new Map() }, doneSet: new Set(),
+  opt: { type: new Map(), status: new Map(), priority: new Map(), category: new Map() }, doneSet: new Set(),
   settings: null,
   view: 'summary', query: '', fCategory: 'all', fType: 'all', fPriority: 'all',
   sortKey: 'due', sortDir: 1,
   calMonth: TODAY.slice(0, 7),
   hideDone: false,
-  modal: null, archive: null, newCat: '', newSub: '', dragId: null, dragSub: null, dragOpt: null, error: '',
+  modal: null, archive: null, newSub: '', dragId: null, dragSub: null, dragOpt: null, dragOptKind: null, error: '',
 };
 
 // ── API ──────────────────────────────────────────────
@@ -47,7 +49,8 @@ const send = (url, method, data) => api(url, { method, body: JSON.stringify(data
 async function reload() {
   const [meta, tasks] = await Promise.all([api('/api/meta'), api('/api/tasks')]);
   Object.assign(S, {
-    tasks, categories: meta.categories,
+    tasks,
+    categories: meta.categories.map((o) => o.name),
     types: meta.types.map((o) => o.name),
     statuses: meta.statuses.map((o) => o.name),
     priorities: meta.priorities.map((o) => o.name),
@@ -55,10 +58,15 @@ async function reload() {
       type: new Map(meta.types.map((o) => [o.name, o])),
       status: new Map(meta.statuses.map((o) => [o.name, o])),
       priority: new Map(meta.priorities.map((o) => [o.name, o])),
+      category: new Map(meta.categories.map((o) => [o.name, o])),
     },
     doneSet: new Set(meta.statuses.filter((o) => o.done).map((o) => o.name)),
     meta,
   });
+  // 설정에서 이름을 바꾸거나 지운 값이 필터에 남아 있으면 아무것도 안 보이므로 푼다
+  if (!S.categories.includes(S.fCategory)) S.fCategory = 'all';
+  if (!S.types.includes(S.fType)) S.fType = 'all';
+  if (!S.priorities.includes(S.fPriority)) S.fPriority = 'all';
   // 모달이 열린 채 체크리스트를 고치는 경우가 있어 서버 값으로 다시 맞춘다
   if (S.modal?.id) S.modal.subtasks = S.tasks.find((t) => t.id === S.modal.id)?.subtasks ?? [];
   render();
@@ -222,12 +230,16 @@ function viewList(list) {
   </div>`;
 }
 
+// 열 순서 = 진행상황 설정 순서. 열 머리를 끌어 바꾸면 설정에도 그대로 반영된다.
 function viewBoard(list) {
-  return `<div class="board">${S.statuses.map((st) => {
+  const cols = S.meta.statuses;
+  return `<div class="board" style="grid-template-columns:repeat(${cols.length},minmax(220px,1fr))">${cols.map((o) => {
+    const st = o.name;
     const tasks = list.filter((t) => t.status === st)
       .sort((a, b) => PR_RANK(a.priority) - PR_RANK(b.priority) || a.due.localeCompare(b.due));
-    return `<div class="bcol ${S.dragId ? 'drag' : ''}" data-drop="${esc(st)}">
-      <div class="head">
+    return `<div class="bcol ${S.dragId ? 'drag' : ''}" data-drop="${esc(st)}" data-opt="${o.id}">
+      <div class="head" draggable="true" title="드래그해서 열 순서 변경">
+        <span class="ck-grip">⠿</span>
         <span class="dot" style="background:${STATUS_COLOR(st)}"></span>
         <span class="l">${esc(st)}</span><span class="n">${tasks.length}</span>
       </div>
@@ -237,7 +249,7 @@ function viewBoard(list) {
           <div class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? '#8D95A0' : '#14161A'}">${esc(t.title)}</div>
           <div class="tags">
             <span style="background:${TYPE_BG(t.type)};color:${TYPE_COLOR(t.type)}">${esc(t.type)}</span>
-            <span style="background:#F1F3F6;color:#5A6270;font-weight:400">${esc(t.category)}</span>
+            <span style="background:${CAT_COLOR(t.category)}1A;color:${CAT_COLOR(t.category)};font-weight:400">${esc(t.category)}</span>
             ${t.repeat_days ? `<span style="background:#FCF1E0;color:#D98200">🔁 ${repeatLabel(t.repeat_days)}</span>` : ''}
           </div>
           ${p.total ? `<div class="prog-row">
@@ -364,10 +376,10 @@ function viewChecklist(m) {
   </div>`;
 }
 
-/** 설정 모달 — 업무유형·진행상황·우선순위를 추가/이름변경/색상변경/순서변경/삭제. */
+/** 설정 모달 — 업무유형·진행상황·우선순위·업무분류를 추가/이름변경/색상변경/순서변경/삭제. */
 function viewSettings() {
   const kind = S.settings;
-  const rows = S.meta[{ type: 'types', status: 'statuses', priority: 'priorities' }[kind]];
+  const rows = S.meta[META_KEY[kind]];
   const used = (name) => S.tasks.filter((t) => t[kind] === name).length;
 
   return `<div class="backdrop" data-act="close-set-bd"><div class="modal">
@@ -391,7 +403,7 @@ function viewSettings() {
         <button class="btn-sm" data-act="opt-add">추가</button>
       </div>
       <div class="ck-hint">${kind === 'status'
-        ? '<b>완료</b>로 표시한 상태는 진척률·보관·반복 생성·완료 숨김에서 «끝남»으로 취급됩니다. 최소 하나는 있어야 합니다.'
+        ? '<b>완료</b>로 표시한 상태는 진척률·보관·반복 생성·완료 숨김에서 «끝남»으로 취급됩니다. 최소 하나는 있어야 합니다. 순서는 보드 열 순서이며, 보드에서 열을 끌어도 바뀝니다.'
         : `이름을 바꾸면 그 ${KIND_LABEL[kind]}을(를) 쓰던 태스크도 함께 바뀝니다. 삭제하면 남은 첫 항목으로 옮겨집니다.`}</div>
     </div>
     <div class="mf"><div style="flex:1"></div>
@@ -449,13 +461,7 @@ function viewModal() {
       </div>
       <div class="row2">
         <div class="field"><label>업무분류</label><select id="d-category">${opts(S.categories, m.category)}</select></div>
-        <div class="field"><label>우선순위</label><select id="d-priority">${opts(['High', 'Medium', 'Low'], m.priority)}</select></div>
-      </div>
-      <div class="cat-edit">
-        <div class="field"><label>새 업무분류 추가</label>
-          <input id="d-newcat" value="${esc(S.newCat)}" placeholder="분류명 입력 후 추가"></div>
-        <button class="btn-sm" data-act="add-cat">추가</button>
-        <button class="btn-sm danger" data-act="rm-cat">현재 분류 삭제</button>
+        <div class="field"><label>우선순위</label><select id="d-priority">${opts(S.priorities, m.priority)}</select></div>
       </div>
       <div class="row2">
         <div class="field"><label>시작일</label><input type="date" id="d-start" value="${m.start}"></div>
@@ -495,6 +501,7 @@ function render() {
   for (const t of S.tasks) catCount[t.category] = (catCount[t.category] || 0) + 1;
   document.getElementById('sidebar-cats').innerHTML = S.categories.map((c) =>
     `<button class="cat-btn ${S.fCategory === c ? 'on' : ''}" data-act="cat" data-cat="${esc(c)}">
+      <span class="cdot" style="background:${CAT_COLOR(c)}"></span>
       <span class="name">${esc(c)}</span><span class="n">${catCount[c] || 0}</span></button>`).join('');
 
   document.getElementById('view-title').textContent = `${VIEWS[S.view]} 뷰`;
@@ -504,7 +511,9 @@ function render() {
   const ft = document.getElementById('f-type');
   ft.innerHTML = `<option value="all">유형: 전체</option>${S.types.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}`;
   ft.value = S.fType;
-  document.getElementById('f-priority').value = S.fPriority;
+  const fp = document.getElementById('f-priority');
+  fp.innerHTML = `<option value="all">우선순위: 전체</option>${S.priorities.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join('')}`;
+  fp.value = S.fPriority;
   document.getElementById('hide-done').classList.toggle('on', S.hideDone);
 
   const renderers = { summary: viewSummary, list: viewList, board: viewBoard, calendar: viewCalendar, timeline: viewTimeline };
@@ -517,15 +526,17 @@ function render() {
 // ── 모달 조작 ────────────────────────────────────────
 function openTask(id) {
   const t = S.tasks.find((x) => x.id === Number(id));
-  if (t) { S.modal = { ...t }; S.newCat = ''; S.newSub = ''; S.error = ''; S.focusId = 'd-title'; render(); }
+  if (t) { S.modal = { ...t }; S.newSub = ''; S.error = ''; S.focusId = 'd-title'; render(); }
 }
 function openNew(status) {
+  // 기본값은 설정에서 가져온다 — 이름을 바꾸거나 지워도 기본값이 깨지지 않게
   S.modal = {
-    id: null, title: '', type: S.types[0], status: status || '시작 전',
+    id: null, title: '', type: S.types[0], status: status || S.statuses.find((s) => !isDone(s)) || S.statuses[0],
     category: S.fCategory !== 'all' ? S.fCategory : S.categories[0],
-    priority: 'Medium', start: TODAY, due: shift(today, 7), memo: '', repeat_days: 0, subtasks: [],
+    priority: S.priorities.includes('Medium') ? 'Medium' : S.priorities[0],
+    start: TODAY, due: shift(today, 7), memo: '', repeat_days: 0, subtasks: [],
   };
-  S.newCat = ''; S.newSub = ''; S.error = ''; S.focusId = 'd-title';
+  S.newSub = ''; S.error = ''; S.focusId = 'd-title';
   render();
 }
 /** DOM 입력값을 모달 상태에 흡수 — 재렌더 시 입력 내용이 날아가지 않게. */
@@ -537,7 +548,6 @@ function syncDraft() {
     priority: v('d-priority'), start: v('d-start'), due: v('d-due'), memo: v('d-memo'),
     repeat_days: Number(v('d-repeat') ?? 0),
   });
-  S.newCat = v('d-newcat') ?? '';
   S.newSub = v('d-newsub') ?? '';
 }
 
@@ -655,30 +665,14 @@ document.addEventListener('click', (e) => {
     if (!confirm('영구 삭제합니다. 되돌릴 수 없습니다.')) return;
     return archiveAction(() => api(`/api/tasks/${id}`, { method: 'DELETE' }));
   }
-  if (act === 'add-cat') {
-    syncDraft();
-    const name = S.newCat.trim();
-    if (!name || S.categories.includes(name)) return;
-    return mutate(async () => { await send('/api/categories', 'POST', { name }); S.modal.category = name; S.newCat = ''; });
-  }
-  if (act === 'rm-cat') {
-    syncDraft();
-    const c = S.modal.category;
-    if (!c || !confirm(`'${c}' 분류를 삭제할까요? 소속 태스크는 다른 분류로 이동합니다.`)) return;
-    return mutate(async () => {
-      const { movedTo } = await send(`/api/categories/${encodeURIComponent(c)}`, 'DELETE');
-      S.modal.category = movedTo;
-      if (S.fCategory === c) S.fCategory = 'all';
-    });
-  }
 });
 
-// 드래그앤드롭 — 보드는 카드↔컬럼, 체크리스트는 항목끼리 순서 교체.
+// 드래그앤드롭 — 보드는 카드↔컬럼(상태 변경) + 열 머리끼리(열 순서), 체크리스트·설정은 항목끼리 순서 교체.
 // dragover는 초당 수십 번 오므로 재렌더 대신 클래스만 직접 건드린다.
-const clearOver = () => document.querySelectorAll('.ck-item.over, .ck-item.over-b')
+const clearOver = () => document.querySelectorAll('.over, .over-b')
   .forEach((el) => el.classList.remove('over', 'over-b'));
 const subOrder = () => (S.modal?.subtasks ?? []).map((s) => s.id);
-const optOrder = () => (S.meta?.[{ type: 'types', status: 'statuses', priority: 'priorities' }[S.settings]] ?? []).map((o) => o.id);
+const optOrder = (kind) => (S.meta?.[META_KEY[kind]] ?? []).map((o) => o.id);
 
 document.addEventListener('dragstart', (e) => {
   // data-sub / data-opt가 있는 것만 정렬 대상 — 보관 모달도 .ck-item 스타일을 재사용한다
@@ -686,8 +680,17 @@ document.addEventListener('dragstart', (e) => {
   if (item) {
     e.dataTransfer.effectAllowed = 'move';
     if (item.dataset.sub) S.dragSub = Number(item.dataset.sub);
-    else S.dragOpt = Number(item.dataset.opt);
+    else { S.dragOpt = Number(item.dataset.opt); S.dragOptKind = S.settings; }
     item.classList.add('dragging');
+    return;
+  }
+  // 보드 열 머리 = 진행상황 항목 자체를 끄는 것. 설정의 순서 변경과 같은 경로로 흐른다.
+  const head = e.target.closest('.bcol > .head');
+  if (head) {
+    e.dataTransfer.effectAllowed = 'move';
+    S.dragOpt = Number(head.parentElement.dataset.opt);
+    S.dragOptKind = 'status';
+    head.parentElement.classList.add('dragging');
     return;
   }
   const card = e.target.closest('.bcard');
@@ -699,24 +702,24 @@ document.addEventListener('dragstart', (e) => {
 
 document.addEventListener('dragend', () => {
   if (S.dragSub || S.dragOpt) {
-    S.dragSub = S.dragOpt = null;
+    S.dragSub = S.dragOpt = S.dragOptKind = null;
     clearOver();
-    document.querySelectorAll('.ck-item.dragging').forEach((el) => el.classList.remove('dragging'));
+    document.querySelectorAll('.dragging').forEach((el) => el.classList.remove('dragging'));
     return;
   }
   S.dragId = null;
   render();
 });
 
-// 체크리스트와 설정 항목은 같은 정렬 UX를 쓴다 — 어느 쪽인지만 구분한다
+// 체크리스트·설정 항목·보드 열이 같은 정렬 UX를 쓴다 — 어느 쪽인지만 구분한다
 const sortCtx = () => S.dragSub
   ? { id: S.dragSub, attr: 'sub', order: subOrder() }
-  : { id: S.dragOpt, attr: 'opt', order: optOrder() };
+  : { id: S.dragOpt, attr: 'opt', order: optOrder(S.dragOptKind), kind: S.dragOptKind };
 
 document.addEventListener('dragover', (e) => {
   if (S.dragSub || S.dragOpt) {
     const { id, attr, order } = sortCtx();
-    const over = e.target.closest(`.ck-item[data-${attr}]`);
+    const over = e.target.closest(`[data-${attr}]`);
     if (!over) return;
     e.preventDefault();
     clearOver();
@@ -731,10 +734,10 @@ document.addEventListener('dragover', (e) => {
 
 document.addEventListener('drop', (e) => {
   if (S.dragSub || S.dragOpt) {
-    const { id: dragged, attr, order } = sortCtx();
+    const { id: dragged, attr, order, kind } = sortCtx();
     const isOpt = !!S.dragOpt;
-    const over = e.target.closest(`.ck-item[data-${attr}]`);
-    S.dragSub = S.dragOpt = null;
+    const over = e.target.closest(`[data-${attr}]`);
+    S.dragSub = S.dragOpt = S.dragOptKind = null;
     clearOver();
     if (!over) return;
     e.preventDefault();
@@ -745,7 +748,7 @@ document.addEventListener('drop', (e) => {
     if (from < 0 || to < 0) return;
     const ids = order.filter((x) => x !== dragged);
     ids.splice(ids.indexOf(target) + (from < to ? 1 : 0), 0, dragged);
-    if (isOpt) return mutate(() => send(`/api/options/${S.settings}/order`, 'PATCH', { ids }));
+    if (isOpt) return mutate(() => send(`/api/options/${kind}/order`, 'PATCH', { ids }));
     syncDraft();
     return mutate(() => send(`/api/tasks/${S.modal.id}/subtasks/order`, 'PATCH', { ids }));
   }
@@ -775,7 +778,7 @@ document.addEventListener('change', (e) => {
   // 이름은 포커스를 벗어날 때만 저장 — 한 글자마다 태스크를 갱신하지 않도록
   if (act === 'opt-name') {
     const name = e.target.value.trim();
-    const cur = S.meta[{ type: 'types', status: 'statuses', priority: 'priorities' }[S.settings]].find((o) => o.id === Number(id));
+    const cur = S.meta[META_KEY[S.settings]].find((o) => o.id === Number(id));
     if (!name || name === cur?.name) return render();
     return mutate(() => send(`/api/options/${id}`, 'PATCH', { name }));
   }

@@ -25,7 +25,7 @@ export function createApp(db = openDb()) {
       types: store.listOptions(db, 'type'),
       statuses: store.listOptions(db, 'status'),
       priorities: store.listOptions(db, 'priority'),
-      categories: store.listCategories(db),
+      categories: store.listOptions(db, 'category'),
     });
   });
 
@@ -47,8 +47,7 @@ export function createApp(db = openDb()) {
   app.patch('/api/subtasks/:id', (req, res) => reply(res, store.updateSubtask(db, req.params.id, req.body ?? {})));
   app.delete('/api/subtasks/:id', (req, res) => { store.deleteSubtask(db, req.params.id); res.status(204).end(); });
 
-  app.post('/api/categories', (req, res) => reply(res, store.addCategory(db, req.body?.name), 201));
-  app.delete('/api/categories/:name', (req, res) => reply(res, store.removeCategory(db, req.params.name)));
+  // 분류 전용 라우트는 없다 — kind='category'로 /api/options/* 를 그대로 쓴다.
 
   return app;
 }

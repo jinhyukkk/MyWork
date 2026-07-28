@@ -1,8 +1,13 @@
 // API 회귀 체크. 인메모리 DB로 CRUD + 검증 + 분류 이관까지 한 번에 확인.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { openDb } from './db.js';
 import { createApp } from './server.js';
+import * as store from './store.js';
 
 const app = createApp(openDb(':memory:'));
 const server = app.listen(0);
@@ -14,7 +19,7 @@ test('태스크 CRUD + 검증 + 분류 삭제 이관', async (t) => {
   t.after(() => server.close());
 
   const meta = await (await call('/api/meta')).json();
-  assert.ok(meta.categories.includes('투자심의AI'));
+  assert.ok(meta.categories.some((o) => o.name === '투자심의AI'));
   assert.equal((await (await call('/api/tasks')).json()).length, 15, '시드 15건');
 
   const valid = { title: '테스트', type: '개발', status: '시작 전', category: '기타', priority: 'High', start: '2026-08-01', due: '2026-08-10', memo: 'm' };
@@ -34,13 +39,14 @@ test('태스크 CRUD + 검증 + 분류 삭제 이관', async (t) => {
   assert.equal(moved.title, '테스트', 'PATCH는 나머지 필드를 보존');
   assert.equal((await call(`/api/tasks/${created.id}`, 'PATCH', { status: 'X' })).status, 400);
 
-  // 분류 삭제 → 소속 태스크 이관
-  await call('/api/categories', 'POST', { name: '임시분류' });
+  // 분류 삭제 → 소속 태스크 이관. 분류도 설정 항목이라 /api/options 경로를 쓴다.
+  const cats = await (await call('/api/options/category', 'POST', { name: '임시분류' })).json();
+  const tmp = cats.find((o) => o.name === '임시분류');
   await call(`/api/tasks/${created.id}`, 'PATCH', { category: '임시분류' });
-  const { movedTo } = await (await call('/api/categories/' + encodeURIComponent('임시분류'), 'DELETE')).json();
+  const { movedTo } = await (await call(`/api/options/${tmp.id}`, 'DELETE')).json();
   const all = await (await call('/api/tasks')).json();
   assert.equal(all.find((x) => x.id === created.id).category, movedTo);
-  assert.ok(!(await (await call('/api/meta')).json()).categories.includes('임시분류'));
+  assert.ok(!(await (await call('/api/meta')).json()).categories.some((o) => o.name === '임시분류'));
 
   // 삭제
   assert.equal((await call(`/api/tasks/${created.id}`, 'DELETE')).status, 204);
@@ -145,6 +151,19 @@ test('설정 항목 — 추가·이름변경·삭제·순서, done 플래그 보
   const flipped = await (await c('/api/options/type/order', 'PATCH', { ids: [...ids].reverse() })).json();
   assert.deepEqual(flipped.map((o) => o.id), [...ids].reverse());
   assert.equal((await c('/api/options/type/order', 'PATCH', { ids: ids.slice(0, 2) })).status, 400, '부분 목록 거부');
+
+  // 진행상황 순서 = 보드 열 순서. 보드에서 열 머리를 끌면 같은 요청이 나간다.
+  const sIds = (await meta()).statuses.map((o) => o.id);
+  const sFlipped = await (await c('/api/options/status/order', 'PATCH', { ids: [...sIds].reverse() })).json();
+  assert.deepEqual(sFlipped.map((o) => o.id), [...sIds].reverse());
+  await c('/api/options/status/order', 'PATCH', { ids: sIds });
+
+  // 분류도 같은 방식으로 이름변경·순서변경이 된다
+  const catIds = (await meta()).categories.map((o) => o.id);
+  const catFlipped = await (await c('/api/options/category/order', 'PATCH', { ids: [...catIds].reverse() })).json();
+  assert.deepEqual(catFlipped.map((o) => o.id), [...catIds].reverse());
+  await c(`/api/options/${catIds[0]}`, 'PATCH', { name: '이름바꾼분류' });
+  assert.ok((await (await c('/api/tasks')).json()).some((x) => x.category === '이름바꾼분류'), '태스크 분류도 따라온다');
 
   // 삭제하면 쓰던 태스크는 남은 첫 항목으로 이관
   const devopsId = (await meta()).types.find((o) => o.name === 'DevOps').id;
@@ -284,4 +303,31 @@ test('체크리스트 CRUD + 태스크 삭제 시 CASCADE', async (t) => {
   // 태스크를 지우면 하위 항목도 함께 사라진다
   await c('/api/tasks/1', 'DELETE');
   assert.equal(db.prepare('SELECT COUNT(*) n FROM subtasks WHERE task_id = 1').get().n, 0, 'CASCADE 동작');
+});
+
+test('구버전 categories 테이블 → options 이관', (t) => {
+  const file = path.join(os.tmpdir(), `mywork-mig-${process.pid}.db`);
+  const clean = () => ['', '-wal', '-shm'].forEach((s) => rmSync(file + s, { force: true }));
+  clean();
+  t.after(clean);
+
+  // 구버전 스키마 그대로 만들어 둔다 — 분류는 별도 테이블, 태스크는 그 분류를 참조
+  const old = new DatabaseSync(file);
+  old.exec(`
+    CREATE TABLE categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
+    INSERT INTO categories (name) VALUES ('가분류'),('나분류');
+    CREATE TABLE tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, type TEXT NOT NULL, status TEXT NOT NULL,
+      category TEXT NOT NULL, priority TEXT NOT NULL, start TEXT NOT NULL, due TEXT NOT NULL, memo TEXT NOT NULL DEFAULT '');
+    INSERT INTO tasks (title, type, status, category, priority, start, due)
+      VALUES ('옛 태스크','개발','진행 중','다분류','High','2026-01-01','2026-01-02');
+  `);
+  old.close();
+
+  const db = openDb(file);
+  assert.deepEqual(store.listCategories(db), ['가분류', '나분류', '다분류'],
+    '순서를 유지하고, 표에 없던 분류(다분류)도 주워 담는다');
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM sqlite_master WHERE name = 'categories'").get().n, 0, '구버전 표는 사라진다');
+  assert.equal(db.prepare('SELECT COUNT(*) n FROM tasks').get().n, 1, '기존 DB에는 예시 데이터를 넣지 않는다');
+  db.close(); // 윈도우에서는 열린 파일을 지울 수 없다
 });

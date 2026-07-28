@@ -15,11 +15,16 @@ export const DEFAULT_OPTIONS = {
   ],
   status: [['시작 전', '#6B7280', 0], ['진행 중', '#2F6FED', 0], ['완료', '#2FA84F', 1]],
   priority: [['High', '#D64545'], ['Medium', '#D98200'], ['Low', '#6B8AA0']],
+  // 업무분류도 같은 설정 항목이다 — 색상·순서·이름변경·삭제 이관을 유형/상태와 똑같이 처리한다
+  category: [
+    ['인사시스템 운영', '#2F6FED'], ['유진GPT 운영', '#0E9AA0'], ['투자심의AI', '#7A5AF8'],
+    ['대학원·논문', '#D98200'], ['구직', '#D9568A'], ['개인투자', '#2FA84F'],
+    ['부동산', '#B07D3B'], ['기타', '#6B7280'],
+  ],
 };
 export const TYPES = DEFAULT_OPTIONS.type.map(([n]) => n);
 export const STATUSES = DEFAULT_OPTIONS.status.map(([n]) => n);
 export const PRIORITIES = DEFAULT_OPTIONS.priority.map(([n]) => n);
-const DEFAULT_CATS = ['인사시스템 운영', '유진GPT 운영', '투자심의AI', '대학원·논문', '구직', '개인투자', '부동산', '기타'];
 
 const DAY = 86400000;
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -28,14 +33,12 @@ const shift = (base, n) => iso(new Date(base.getTime() + n * DAY));
 export function openDb(file = path.join(ROOT, 'data', 'mywork.db')) {
   mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
+  // 예시 데이터는 진짜 새 DB에만 넣는다. 태스크를 전부 지워도 다시 생기지 않는다.
+  const fresh = !db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks'").get();
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
     PRAGMA busy_timeout = 5000;   -- 웹 서버와 MCP 서버가 같은 파일을 동시에 열 수 있다
-    CREATE TABLE IF NOT EXISTS categories (
-      id   INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE
-    );
     CREATE TABLE IF NOT EXISTS tasks (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
       title      TEXT NOT NULL,
@@ -61,7 +64,7 @@ export function openDb(file = path.join(ROOT, 'data', 'mywork.db')) {
     CREATE INDEX IF NOT EXISTS idx_subtasks_task ON subtasks(task_id);
     CREATE TABLE IF NOT EXISTS options (
       id    INTEGER PRIMARY KEY AUTOINCREMENT,
-      kind  TEXT NOT NULL,                       -- 'type' | 'status' | 'priority'
+      kind  TEXT NOT NULL,                       -- 'type' | 'status' | 'priority' | 'category'
       name  TEXT NOT NULL,
       color TEXT NOT NULL DEFAULT '#6B7280',
       sort  INTEGER NOT NULL DEFAULT 0,
@@ -70,7 +73,7 @@ export function openDb(file = path.join(ROOT, 'data', 'mywork.db')) {
     );
   `);
   migrate(db);
-  if (db.prepare('SELECT COUNT(*) n FROM categories').get().n === 0) seed(db);
+  if (fresh) seed(db);
   return db;
 }
 
@@ -85,26 +88,33 @@ function migrate(db) {
   }
 
   // 설정 항목이 비어 있으면 기본값을 심는다. 기존 DB에도 그대로 적용된다.
+  // 분류는 아래 전용 블록이 맡는다 — 구버전 테이블에서 옮겨야 해서 기본값을 먼저 넣으면 안 된다.
   if (db.prepare('SELECT COUNT(*) n FROM options').get().n === 0) {
     const ins = db.prepare('INSERT OR IGNORE INTO options (kind, name, color, sort, done) VALUES (?,?,?,?,?)');
-    for (const [kind, rows] of Object.entries(DEFAULT_OPTIONS)) {
-      rows.forEach(([name, color, done = 0], i) => ins.run(kind, name, color, i, done));
-    }
-    // 기본값에 없는 값이 태스크에 이미 들어가 있으면(외부 임포트 등) 설정에서 사라지지 않게 주워 담는다
     for (const kind of ['type', 'status', 'priority']) {
-      for (const { v } of db.prepare(`SELECT DISTINCT ${kind} v FROM tasks`).all()) {
-        ins.run(kind, v, '#6B7280', 99, 0);
-      }
+      DEFAULT_OPTIONS[kind].forEach(([name, color, done = 0], i) => ins.run(kind, name, color, i, done));
+      // 기본값에 없는 값이 태스크에 이미 들어가 있으면(외부 임포트 등) 설정에서 사라지지 않게 주워 담는다
+      for (const { v } of db.prepare(`SELECT DISTINCT ${kind} v FROM tasks`).all()) ins.run(kind, v, '#6B7280', 99, 0);
     }
+  }
+
+  // 업무분류를 options로 통합한다. 구버전 categories 테이블이 있으면 그 순서 그대로 옮기고 표를 없앤다.
+  if (db.prepare("SELECT COUNT(*) n FROM options WHERE kind = 'category'").get().n === 0) {
+    const palette = DEFAULT_OPTIONS.category;
+    const old = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='categories'").get()
+      ? db.prepare('SELECT name FROM categories ORDER BY id').all().map((r) => r.name)
+      : [];
+    const rows = old.length ? old.map((name, i) => [name, palette[i % palette.length][1]]) : palette;
+    const ins = db.prepare("INSERT OR IGNORE INTO options (kind, name, color, sort, done) VALUES ('category',?,?,?,0)");
+    rows.forEach(([name, color], i) => ins.run(name, color, i));
+    for (const { v } of db.prepare('SELECT DISTINCT category v FROM tasks').all()) ins.run(v, '#6B7280', 99);
+    db.exec('DROP TABLE IF EXISTS categories');
   }
 }
 
 function seed(db) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-
-  const insCat = db.prepare('INSERT INTO categories (name) VALUES (?)');
-  for (const c of DEFAULT_CATS) insCat.run(c);
 
   // 최초 실행 시에만 넣는 예시 데이터. 전부 지우면 다시 생기지 않음.
   const rows = [

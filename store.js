@@ -23,8 +23,8 @@ const localToday = () => {
 };
 
 // ── 설정 항목(업무유형·진행상황·우선순위) ──────────────
-export const KINDS = ['type', 'status', 'priority'];
-const KIND_LABEL = { type: '업무유형', status: '진행상황', priority: '우선순위' };
+export const KINDS = ['type', 'status', 'priority', 'category'];
+const KIND_LABEL = { type: '업무유형', status: '진행상황', priority: '우선순위', category: '업무분류' };
 
 export const listOptions = (db, kind) =>
   db.prepare('SELECT id, name, color, sort, done FROM options WHERE kind = ? ORDER BY sort, id').all(kind);
@@ -328,23 +328,14 @@ export function reorderSubtasks(db, taskId, ids) {
 }
 
 // ── 분류 ──────────────────────────────────────────────
-export const listCategories = (db) =>
-  db.prepare('SELECT name FROM categories ORDER BY id').all().map((r) => r.name);
+// 분류는 kind='category'인 설정 항목이다. 추가·이름변경·삭제·순서는 전부 위의 옵션 함수를 쓴다.
+export const listCategories = (db) => listOptions(db, 'category').map((o) => o.name);
 
+/** 이미 있으면 그냥 통과 — MCP가 없는 분류를 지정했을 때 만들어 주는 용도라 멱등해야 한다. */
 export function addCategory(db, name) {
-  const clean = typeof name === 'string' ? name.trim() : '';
+  const clean = optName(name);
   if (!clean) return fail('분류명이 비었습니다');
-  db.prepare('INSERT OR IGNORE INTO categories (name) VALUES (?)').run(clean);
-  return ok({ name: clean });
-}
-
-/** 분류를 지우면 소속 태스크는 남은 첫 분류로 이관한다. */
-export function removeCategory(db, name) {
-  const all = listCategories(db);
-  if (all.length <= 1) return fail('마지막 분류는 삭제할 수 없습니다');
-  if (!all.includes(name)) return fail('분류 없음', 404);
-  const fallback = all.find((c) => c !== name);
-  db.prepare('UPDATE tasks SET category = ? WHERE category = ?').run(fallback, name);
-  db.prepare('DELETE FROM categories WHERE name = ?').run(name);
-  return ok({ movedTo: fallback });
+  if (listCategories(db).includes(clean)) return ok({ name: clean });
+  const r = addOption(db, 'category', { name: clean });
+  return r.error ? r : ok({ name: clean });
 }
