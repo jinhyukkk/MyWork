@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "mywork": {
+      "command": "node",
+      "args": ["D:\\Personal\\MyWork\\mcp.js"]
+    }
+  }
+}
