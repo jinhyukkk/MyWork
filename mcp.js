@@ -25,6 +25,10 @@ const daysBetween = (from, to) => Math.round((parseD(to) - parseD(from)) / DAY);
 const str = (description) => ({ type: 'string', description });
 const enumOf = (values, description) => ({ type: 'string', enum: values, description });
 const ID = { type: 'integer', description: '태스크 id' };
+const PARENT = {
+  type: ['integer', 'null'],
+  description: '상위 태스크 id (Jira 하위 태스크). null이면 연결 해제. 하위는 다시 하위를 가질 수 없다(1단계)',
+};
 const REPEAT = {
   type: 'integer', minimum: 0, maximum: 365,
   description: '반복 주기(일). 0이면 반복 없음. 완료로 바꾸는 순간 이 간격으로 다음 회차가 자동 생성된다 (매주 7, 2주 14, 4주 28)',
@@ -63,6 +67,7 @@ const TOOLS = [
         due: str('마감일 YYYY-MM-DD (기본 오늘+7일)'),
         memo: str('설명·메모'),
         repeat_days: REPEAT,
+        parent_id: PARENT,
       },
       required: ['title'],
     },
@@ -77,14 +82,14 @@ const TOOLS = [
         title: str('제목'), type: enumOf(TYPES, '업무유형'), status: enumOf(STATUSES, '진행상황'),
         priority: enumOf(PRIORITIES, '우선순위'), category: str('업무분류'),
         start: str('시작일 YYYY-MM-DD'), due: str('마감일 YYYY-MM-DD'), memo: str('설명·메모'),
-        repeat_days: REPEAT,
+        repeat_days: REPEAT, parent_id: PARENT,
       },
       required: ['id'],
     },
   },
   {
     name: 'delete_task',
-    description: '태스크를 삭제한다. 하위 체크리스트도 함께 지워진다.',
+    description: '태스크를 삭제한다. 체크리스트도 함께 지워진다. 하위 태스크는 지워지지 않고 연결만 끊긴다.',
     inputSchema: { type: 'object', properties: { id: ID }, required: ['id'] },
   },
   {
@@ -185,6 +190,7 @@ const HANDLERS = {
       start: a.start ?? todayIso(),
       due: a.due ?? iso(new Date(Date.now() + 7 * DAY)),
       memo: a.memo ?? '',
+      ...(a.parent_id === undefined ? {} : { parent_id: a.parent_id }),
     }));
   },
 

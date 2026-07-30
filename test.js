@@ -305,6 +305,42 @@ test('체크리스트 CRUD + 태스크 삭제 시 CASCADE', async (t) => {
   assert.equal(db.prepare('SELECT COUNT(*) n FROM subtasks WHERE task_id = 1').get().n, 0, 'CASCADE 동작');
 });
 
+test('상하위 태스크 — 1단계 제한 + 삭제 시 연결만 해제', async (t) => {
+  const db = openDb(':memory:');
+  const srv = createApp(db).listen(0);
+  t.after(() => srv.close());
+  const b = `http://localhost:${srv.address().port}`;
+  const c = (p, method = 'GET', body) =>
+    fetch(b + p, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
+
+  const base = { type: '개발', status: '시작 전', category: '기타', priority: 'Medium', start: '2026-08-01', due: '2026-08-10' };
+  const mk = async (title, extra = {}) => (await (await c('/api/tasks', 'POST', { ...base, title, ...extra })).json());
+
+  const parent = await mk('상위');
+  const child = await mk('하위', { parent_id: parent.id });
+  assert.equal(child.parent_id, parent.id, '생성 시 상위 지정');
+
+  // 1단계 제한 — 손자도, 자기 자신도, 없는 상위도 안 된다
+  assert.equal((await c('/api/tasks', 'POST', { ...base, title: '손자', parent_id: child.id })).status, 400);
+  assert.equal((await c(`/api/tasks/${parent.id}`, 'PATCH', { parent_id: parent.id })).status, 400, '자기 자신');
+  assert.equal((await c(`/api/tasks/${parent.id}`, 'PATCH', { parent_id: 9999 })).status, 400, '없는 상위');
+  assert.equal((await c(`/api/tasks/${parent.id}`, 'PATCH', { parent_id: child.id })).status, 400, '하위를 가진 태스크는 하위가 못 된다');
+
+  // 연결 해제 후에는 상위가 될 수 있다
+  const other = await mk('제3');
+  assert.equal((await (await c(`/api/tasks/${child.id}`, 'PATCH', { parent_id: null })).json()).parent_id, null);
+  assert.equal((await (await c(`/api/tasks/${child.id}`, 'PATCH', { parent_id: other.id })).json()).parent_id, other.id);
+
+  // 다른 필드 수정은 상위 연결을 건드리지 않는다
+  assert.equal((await (await c(`/api/tasks/${child.id}`, 'PATCH', { status: '진행 중' })).json()).parent_id, other.id);
+
+  // 상위를 지워도 하위는 남고 연결만 끊긴다 (삭제 버튼에 확인이 없어 CASCADE는 쓰지 않는다)
+  await c(`/api/tasks/${other.id}`, 'DELETE');
+  const left = (await (await c('/api/tasks')).json()).find((x) => x.id === child.id);
+  assert.ok(left, '하위 태스크는 살아남는다');
+  assert.equal(left.parent_id, null);
+});
+
 test('구버전 categories 테이블 → options 이관', (t) => {
   const file = path.join(os.tmpdir(), `mywork-mig-${process.pid}.db`);
   const clean = () => ['', '-wal', '-shm'].forEach((s) => rmSync(file + s, { force: true }));

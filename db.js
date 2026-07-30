@@ -51,6 +51,8 @@ export function openDb(file = path.join(ROOT, 'data', 'mywork.db')) {
       memo       TEXT NOT NULL DEFAULT '',
       repeat_days INTEGER NOT NULL DEFAULT 0,   -- 0이면 반복 없음. 완료 시 이 간격으로 다음 건이 생긴다
       archived   INTEGER NOT NULL DEFAULT 0,    -- 1이면 모든 뷰·통계에서 빠진다 (삭제 아님, 복원 가능)
+      -- 상위 태스크(Jira 하위 태스크). 지우면 하위는 남고 연결만 끊긴다 — 삭제 버튼에 확인이 없어 CASCADE는 위험하다
+      parent_id  INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
     );
     CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due);
@@ -86,6 +88,12 @@ function migrate(db) {
   if (!cols.includes('archived')) {
     db.exec('ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0');
   }
+  if (!cols.includes('parent_id')) {
+    // ADD COLUMN + REFERENCES는 기본값이 NULL일 때만 허용된다
+    db.exec('ALTER TABLE tasks ADD COLUMN parent_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL');
+  }
+  // 인덱스는 컬럼이 갖춰진 뒤에 — CREATE TABLE 블록에 두면 구버전 표에서 컬럼보다 먼저 실행된다
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)');
 
   // 설정 항목이 비어 있으면 기본값을 심는다. 기존 DB에도 그대로 적용된다.
   // 분류는 아래 전용 블록이 맡는다 — 구버전 테이블에서 옮겨야 해서 기본값을 먼저 넣으면 안 된다.

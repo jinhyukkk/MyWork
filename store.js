@@ -133,6 +133,27 @@ const FIELDS = {
 // 생성 시 없어도 되는 필드
 const OPTIONAL = new Set(['memo', 'repeat_days', 'archived']);
 
+/**
+ * 상위 태스크 검증. Jira와 같이 1단계까지만 허용한다 —
+ * '하위는 하위를 못 가진다' 규칙 하나로 자기참조·순환이 전부 막히므로 그래프 탐색이 필요 없다.
+ * 반환값: { error } 또는 { value } (value가 null이면 연결 해제)
+ */
+function pickParent(db, body, childId) {
+  if (!('parent_id' in body)) return {};
+  const raw = body.parent_id;
+  if (raw === null || raw === '' || raw === 0) return { value: null };
+  const pid = Number(raw);
+  if (!Number.isInteger(pid) || pid <= 0) return { error: 'parent_id 값이 올바르지 않습니다' };
+  if (pid === childId) return { error: '자기 자신을 상위로 지정할 수 없습니다' };
+  const parent = db.prepare('SELECT parent_id FROM tasks WHERE id = ?').get(pid);
+  if (!parent) return { error: '상위 태스크 없음' };
+  if (parent.parent_id !== null) return { error: '하위 태스크에는 다시 하위를 붙일 수 없습니다 (1단계까지)' };
+  if (childId && db.prepare('SELECT 1 FROM tasks WHERE parent_id = ?').get(childId)) {
+    return { error: '하위 태스크를 가진 태스크는 다른 태스크의 하위가 될 수 없습니다' };
+  }
+  return { value: pid };
+}
+
 /** 허용된 필드만 추려 검증. required면 OPTIONAL을 뺀 전 필드가 있어야 한다. */
 function pick(db, body, required) {
   const out = {};
@@ -187,9 +208,11 @@ export function createTask(db, body) {
   const { data, error, status } = pick(db, body, true);
   if (error) return fail(error, status);
   if (data.start > data.due) return fail('시작일이 마감일보다 늦습니다');
+  const parent = pickParent(db, body, null);
+  if (parent.error) return fail(parent.error);
   const { lastInsertRowid } = db
-    .prepare('INSERT INTO tasks (title, type, status, category, priority, start, due, memo, repeat_days) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(data.title, data.type, data.status, data.category, data.priority, data.start, data.due, data.memo ?? '', data.repeat_days ?? 0);
+    .prepare('INSERT INTO tasks (title, type, status, category, priority, start, due, memo, repeat_days, parent_id) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(data.title, data.type, data.status, data.category, data.priority, data.start, data.due, data.memo ?? '', data.repeat_days ?? 0, parent.value ?? null);
   return ok(getTask(db, lastInsertRowid));
 }
 
@@ -206,8 +229,8 @@ function spawnNext(db, task) {
   while (due <= today) due = addDays(due, task.repeat_days);
 
   const { lastInsertRowid } = db
-    .prepare('INSERT INTO tasks (title, type, status, category, priority, start, due, memo, repeat_days) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(task.title, task.type, firstOpenStatus(db), task.category, task.priority, addDays(due, -gap), due, task.memo, task.repeat_days);
+    .prepare('INSERT INTO tasks (title, type, status, category, priority, start, due, memo, repeat_days, parent_id) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(task.title, task.type, firstOpenStatus(db), task.category, task.priority, addDays(due, -gap), due, task.memo, task.repeat_days, task.parent_id);
 
   const ins = db.prepare('INSERT INTO subtasks (task_id, title, done, sort) VALUES (?,?,0,?)');
   for (const s of subsOf(db, task.id)) ins.run(lastInsertRowid, s.title, s.sort);
@@ -219,6 +242,9 @@ export function updateTask(db, id, body) {
   if (!cur) return fail('태스크 없음', 404);
   const { data, error, status } = pick(db, body, false);
   if (error) return fail(error, status);
+  const parent = pickParent(db, body, cur.id);
+  if (parent.error) return fail(parent.error);
+  if ('value' in parent) data.parent_id = parent.value;
   const keys = Object.keys(data);
   if (!keys.length) return ok(getTask(db, cur.id));
   const merged = { ...cur, ...data };
