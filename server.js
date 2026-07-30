@@ -11,7 +11,9 @@ const PORT = Number(process.env.PORT) || 4000;
 export function createApp(db = openDb()) {
   const app = express();
   app.use(express.json());
-  app.use(express.static(path.join(ROOT, 'public')));
+  // 뷰별 페이지가 물리 파일로 나뉘어 있다 — /summary → summary.html
+  app.use(express.static(path.join(ROOT, 'public'), { extensions: ['html'] }));
+  app.get('/', (_req, res) => res.redirect('/summary'));
 
   /** store 결과를 HTTP 응답으로 옮긴다. */
   const reply = (res, result, okStatus = 200) =>

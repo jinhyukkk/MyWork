@@ -16,6 +16,15 @@ const PR_COLOR = (p) => S.opt.priority.get(p)?.color ?? '#6B7280';
 const PR_RANK = (p) => S.opt.priority.get(p)?.sort ?? 99;
 const isDone = (s) => S.doneSet.has(s);
 
+// 상하위 관계는 1단계뿐이라 인덱스 없이 훑는다 (개인용 규모 — 수십~수백 건)
+const taskById = (id) => S.tasks.find((t) => t.id === id);
+const childrenOf = (id) => S.tasks.filter((t) => t.parent_id === id);
+/** 하위 태스크 진행 — 완료 건수 기준. 없으면 total 0 → UI에서 숨김. */
+const childProgress = (id) => {
+  const kids = childrenOf(id);
+  return { done: kids.filter((t) => isDone(t.status)).length, total: kids.length };
+};
+
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const parseD = (s) => { const p = String(s || '').split('-').map(Number); return new Date(p[0], (p[1] || 1) - 1, p[2] || 1); };
 const shift = (base, n) => iso(new Date(base.getTime() + n * DAY));
@@ -29,7 +38,8 @@ const S = {
   tasks: [], categories: [], types: [], statuses: [], priorities: [],
   opt: { type: new Map(), status: new Map(), priority: new Map(), category: new Map() }, doneSet: new Set(),
   settings: null,
-  view: 'summary', query: '', fCategory: 'all', fType: 'all', fPriority: 'all',
+  view: document.body.dataset.view || 'summary',
+  query: '', fCategory: 'all', fType: 'all', fPriority: 'all',
   sortKey: 'due', sortDir: 1,
   calMonth: TODAY.slice(0, 7),
   hideDone: false,
@@ -206,12 +216,21 @@ function viewList(list) {
   const head = COLS.map((c) => `<button data-act="sort" data-key="${c.key}">
     <span>${c.label}</span><span class="arrow">${S.sortKey === c.key && c.key ? (S.sortDir === 1 ? '▲' : '▼') : ''}</span></button>`).join('');
 
-  const rows = sorted.map((t) => {
-    const dm = dueMeta(t), done = isDone(t.status), p = checklist(t);
+  // 하위 태스크는 상위 바로 아래에 붙인다. 상위가 필터에 걸려 안 보이면 제자리에 그대로 둔다.
+  const kids = new Map();
+  for (const t of sorted) if (t.parent_id) kids.set(t.parent_id, [...(kids.get(t.parent_id) ?? []), t]);
+  const shown = new Set(sorted.map((t) => t.id));
+  const ordered = sorted.flatMap((t) =>
+    (t.parent_id && shown.has(t.parent_id)) ? [] : [t, ...(kids.get(t.id) ?? [])]);
+
+  const rows = ordered.map((t) => {
+    const dm = dueMeta(t), done = isDone(t.status), p = checklist(t), c = childProgress(t.id);
+    // 하위 표시 색은 상위의 분류 색을 따른다 — 상위가 지워졌거나 보관됐으면 CAT_COLOR의 기본 회색
+    const sub = t.parent_id ? `--sub:${CAT_COLOR(taskById(t.parent_id)?.category)}` : '';
     return `<div class="grid-row trow">
-      <div class="main" data-act="open" data-id="${t.id}">
-        <span class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? '#9AA2AD' : '#14161A'}">${esc(t.title)}</span>
-        <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${esc(t.memo || '—')}</span>
+      <div class="main ${t.parent_id ? 'is-sub' : ''}" style="${sub}" data-act="open" data-id="${t.id}">
+        <span class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? '#9AA2AD' : '#14161A'}">${t.parent_id ? '<span class="sub-mark">↳</span>' : ''}${esc(t.title)}</span>
+        <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${c.total ? `<b class="sb-badge">⑂ ${c.done}/${c.total}</b>` : ''}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${esc(t.memo || '—')}</span>
       </div>
       <div class="cell"><span class="chip" style="background:${TYPE_BG(t.type)};color:${TYPE_COLOR(t.type)}">${esc(t.type)}</span></div>
       <div class="cell"><span class="chip" style="background:${STATUS_BG(t.status)};color:${STATUS_COLOR(t.status)}">${esc(t.status)}</span></div>
@@ -244,12 +263,16 @@ function viewBoard(list) {
         <span class="l">${esc(st)}</span><span class="n">${tasks.length}</span>
       </div>
       ${tasks.map((t) => {
-        const dm = dueMeta(t), done = isDone(t.status), p = checklist(t);
-        return `<div class="bcard ${S.dragId === t.id ? 'dragging' : ''}" draggable="true" data-act="open" data-id="${t.id}">
+        const dm = dueMeta(t), done = isDone(t.status), p = checklist(t), c = childProgress(t.id);
+        const parent = t.parent_id && taskById(t.parent_id);
+        return `<div class="bcard ${parent ? 'is-sub' : ''} ${S.dragId === t.id ? 'dragging' : ''}" draggable="true"
+             style="${parent ? `--sub:${CAT_COLOR(parent.category)}` : ''}" data-act="open" data-id="${t.id}">
+          ${parent ? `<div class="parent-line" data-act="open" data-id="${parent.id}" title="상위 태스크: ${esc(parent.title)}">↳ ${esc(parent.title)}</div>` : ''}
           <div class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? '#8D95A0' : '#14161A'}">${esc(t.title)}</div>
           <div class="tags">
             <span style="background:${TYPE_BG(t.type)};color:${TYPE_COLOR(t.type)}">${esc(t.type)}</span>
             <span style="background:${CAT_COLOR(t.category)}1A;color:${CAT_COLOR(t.category)};font-weight:400">${esc(t.category)}</span>
+            ${c.total ? `<span style="background:#E9ECF1;color:#3C424C">⑂ ${c.done}/${c.total}</span>` : ''}
             ${t.repeat_days ? `<span style="background:#FCF1E0;color:#D98200">🔁 ${repeatLabel(t.repeat_days)}</span>` : ''}
           </div>
           ${p.total ? `<div class="prog-row">
@@ -376,6 +399,46 @@ function viewChecklist(m) {
   </div>`;
 }
 
+/**
+ * 상위 태스크 지정. Jira처럼 1단계까지만 —
+ * 이미 하위를 가진 태스크는 다른 태스크의 하위가 될 수 없다(선택 대신 안내만).
+ */
+function viewParent(m) {
+  const kids = m.id ? childrenOf(m.id) : [];
+  if (kids.length) {
+    return `<div class="field"><label>상위 태스크</label>
+      <div class="ck-hint">하위 태스크 ${kids.length}건을 가지고 있어 다른 태스크의 하위로 넣을 수 없습니다.</div></div>`;
+  }
+  const cand = S.tasks.filter((t) => t.id !== m.id && t.parent_id == null);
+  // 보관된 태스크가 상위인 경우 목록에 없다 — 선택지를 만들어 두지 않으면 저장할 때 연결이 조용히 끊긴다
+  const keep = m.parent_id && !cand.some((t) => t.id === m.parent_id)
+    ? `<option value="${m.parent_id}" selected>#${m.parent_id} (보관됨)</option>` : '';
+  return `<div class="field"><label>상위 태스크</label>
+    <select id="d-parent">
+      <option value="">없음</option>${keep}
+      ${cand.map((t) => `<option value="${t.id}" ${t.id === m.parent_id ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}
+    </select></div>`;
+}
+
+/** 하위 태스크 목록. 하위는 다시 하위를 못 가지므로 자신이 하위면 아예 표시하지 않는다. */
+function viewChildren(m) {
+  if (!m.id || m.parent_id) return '';
+  const kids = childrenOf(m.id);
+  const p = childProgress(m.id);
+  return `<div class="field">
+    <label>하위 태스크 ${p.total ? `<span class="ck-n">${p.done}/${p.total}</span>` : ''}</label>
+    <div class="ck-list">${kids.map((t) => {
+      const dm = dueMeta(t);
+      return `<div class="ck-item" data-act="open" data-id="${t.id}" style="cursor:pointer">
+        <span class="ck-t ${isDone(t.status) ? 'done' : ''}">${esc(t.title)}</span>
+        <span class="chip" style="background:${STATUS_BG(t.status)};color:${STATUS_COLOR(t.status)}">${esc(t.status)}</span>
+        <span class="ck-n" style="color:${dm.color}">${dm.short}</span>
+      </div>`;
+    }).join('') || '<div class="ck-hint">하위 태스크가 없습니다.</div>'}</div>
+    <div class="ck-add"><button class="btn-sm" data-act="child-add">＋ 하위 태스크 추가</button></div>
+  </div>`;
+}
+
 /** 설정 모달 — 업무유형·진행상황·우선순위·업무분류를 추가/이름변경/색상변경/순서변경/삭제. */
 function viewSettings() {
   const kind = S.settings;
@@ -467,6 +530,7 @@ function viewModal() {
         <div class="field"><label>시작일</label><input type="date" id="d-start" value="${m.start}"></div>
         <div class="field"><label>마감일</label><input type="date" id="d-due" value="${m.due}"></div>
       </div>
+      ${viewParent(m)}
       <div class="field">
         <label>반복</label>
         <select id="d-repeat">${repeatOptions(m.repeat_days ?? 0)}</select>
@@ -475,6 +539,7 @@ function viewModal() {
       <div class="field"><label>설명 · 메모</label>
         <textarea id="d-memo" rows="4" placeholder="세부 내용, 링크 등">${esc(m.memo)}</textarea></div>
       ${viewChecklist(m)}
+      ${viewChildren(m)}
     </div>
     <div class="mf">
       ${m.id ? '<button class="btn-del" data-act="del-modal">삭제</button>' : ''}
@@ -493,9 +558,9 @@ function render() {
   const list = S.view === 'summary' ? all : visible;
 
   document.getElementById('nav').innerHTML = Object.entries(VIEWS).map(([k, label]) =>
-    `<button class="nav-btn ${S.view === k ? 'on' : ''}" data-act="nav" data-view="${k}">
+    `<a class="nav-btn ${S.view === k ? 'on' : ''}" href="/${k}">
       <span class="mark"></span><span class="label">${label}</span>
-      <span class="badge">${k === 'summary' ? '' : visible.length}</span></button>`).join('');
+      <span class="badge">${k === 'summary' ? '' : visible.length}</span></a>`).join('');
 
   const catCount = {};
   for (const t of S.tasks) catCount[t.category] = (catCount[t.category] || 0) + 1;
@@ -528,13 +593,17 @@ function openTask(id) {
   const t = S.tasks.find((x) => x.id === Number(id));
   if (t) { S.modal = { ...t }; S.newSub = ''; S.error = ''; S.focusId = 'd-title'; render(); }
 }
-function openNew(status) {
+function openNew(status, parentId = null) {
+  // 하위 태스크는 상위의 분류·유형·마감일을 물려받는다 — 매번 다시 고르지 않도록
+  const p = parentId ? taskById(parentId) : null;
   // 기본값은 설정에서 가져온다 — 이름을 바꾸거나 지워도 기본값이 깨지지 않게
   S.modal = {
-    id: null, title: '', type: S.types[0], status: status || S.statuses.find((s) => !isDone(s)) || S.statuses[0],
-    category: S.fCategory !== 'all' ? S.fCategory : S.categories[0],
+    id: null, title: '', type: p?.type ?? S.types[0], status: status || S.statuses.find((s) => !isDone(s)) || S.statuses[0],
+    category: p?.category ?? (S.fCategory !== 'all' ? S.fCategory : S.categories[0]),
     priority: S.priorities.includes('Medium') ? 'Medium' : S.priorities[0],
-    start: TODAY, due: shift(today, 7), memo: '', repeat_days: 0, subtasks: [],
+    // 상위가 이미 지난 마감이면 물려받지 않는다 — 시작일(오늘)보다 앞서면 저장이 막힌다
+    start: TODAY, due: p && p.due > TODAY ? p.due : shift(today, 7), memo: '', repeat_days: 0, subtasks: [],
+    parent_id: parentId,
   };
   S.newSub = ''; S.error = ''; S.focusId = 'd-title';
   render();
@@ -548,6 +617,9 @@ function syncDraft() {
     priority: v('d-priority'), start: v('d-start'), due: v('d-due'), memo: v('d-memo'),
     repeat_days: Number(v('d-repeat') ?? 0),
   });
+  // 하위를 가진 태스크는 select 자체가 없다 — 그럴 땐 기존 값을 그대로 둔다
+  const parent = v('d-parent');
+  if (parent !== undefined) S.modal.parent_id = parent ? Number(parent) : null;
   S.newSub = v('d-newsub') ?? '';
 }
 
@@ -606,12 +678,21 @@ async function saveDraft() {
   const m = S.modal;
   if (!m.title.trim()) { S.error = '제목을 입력하세요'; return render(); }
   const body = { title: m.title, type: m.type, status: m.status, category: m.category, priority: m.priority,
-    start: m.start, due: m.due, memo: m.memo, repeat_days: m.repeat_days ?? 0 };
+    start: m.start, due: m.due, memo: m.memo, repeat_days: m.repeat_days ?? 0, parent_id: m.parent_id ?? null };
   await mutate(async () => {
     if (m.id) await send(`/api/tasks/${m.id}`, 'PATCH', body);
     else await send('/api/tasks', 'POST', body);
     S.modal = null;
   });
+}
+
+/** 하위 태스크 추가 — 열려 있던 수정 내용을 먼저 저장하고 새 태스크 모달로 넘어간다. */
+async function openChild() {
+  const parentId = S.modal?.id;
+  if (!parentId) return;
+  await saveDraft();
+  if (S.modal) return; // 저장 실패 — 에러가 뜬 모달을 그대로 둔다
+  openNew(null, parentId);
 }
 
 // ── 이벤트 ───────────────────────────────────────────
@@ -620,7 +701,6 @@ document.addEventListener('click', (e) => {
   if (!el) return;
   const { act, id } = el.dataset;
 
-  if (act === 'nav') { S.view = el.dataset.view; return render(); }
   if (act === 'cat') { S.fCategory = S.fCategory === el.dataset.cat ? 'all' : el.dataset.cat; return render(); }
   if (act === 'sort') {
     const k = el.dataset.key;
@@ -641,6 +721,7 @@ document.addEventListener('click', (e) => {
   if (act === 'del-modal') return mutate(async () => { await api(`/api/tasks/${S.modal.id}`, { method: 'DELETE' }); S.modal = null; });
   if (act === 'save') return saveDraft();
   if (act === 'sub-add') return addSubtask();
+  if (act === 'child-add') return openChild();
   if (act === 'sub-toggle') { syncDraft(); return mutate(() => send(`/api/subtasks/${el.dataset.sub}`, 'PATCH', { done: el.dataset.done !== '1' })); }
   if (act === 'sub-del') { syncDraft(); return mutate(() => api(`/api/subtasks/${el.dataset.sub}`, { method: 'DELETE' })); }
   if (act === 'close' || (act === 'close-bd' && e.target === el)) { S.modal = null; S.error = ''; return render(); }

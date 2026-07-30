@@ -1,11 +1,3 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MyWork · 개인 업무 관리</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
-<style>
   html, body { margin:0; padding:0; background:#F4F5F7; }
   * { box-sizing:border-box; }
   ::-webkit-scrollbar { width:10px; height:10px; }
@@ -190,6 +182,19 @@
   .ck-n { font-size:10.5px; color:#6B7280; font-variant-numeric:tabular-nums; font-weight:600; }
   .ck-badge { font-size:10.5px; color:#2F6FED; background:#EAF0FE; padding:1px 5px; border-radius:3px; font-weight:600; margin-right:6px; font-variant-numeric:tabular-nums; }
   .rp-badge { font-size:10.5px; color:#D98200; background:#FCF1E0; padding:1px 5px; border-radius:3px; font-weight:600; margin-right:6px; }
+  /* ── 상하위 태스크 ── */
+  /* 색은 고정하지 않는다 — 유형·분류 색은 사용자가 바꾸므로 어떤 값을 박아도 언젠가 겹친다.
+     하위 표시는 상위 태스크의 분류 색을 --sub로 물려받고, 구분은 색이 아니라 형태(세로선·↳ 칩)가 맡는다. */
+  .sub-mark { color:var(--sub,#8A919C); margin-right:5px; font-weight:700; }
+  /* 하위 행: 들여쓰기만으로는 스크롤 중에 놓치기 쉬워 왼쪽에 세로선을 세운다 */
+  .trow .main.is-sub { padding-left:30px; box-shadow:inset 3px 0 0 var(--sub,#C9CFD8); }
+  /* 하위 카드: 왼쪽 굵은 선 + 상위 태스크 칩(클릭하면 상위로 이동) */
+  .bcard.is-sub { border-left:3px solid var(--sub,#C9CFD8); padding-left:10px; }
+  /* 칩만 솔리드로 채운다 — 나머지 태그가 전부 10% 파스텔이라 이 하나가 확실히 튄다 */
+  .bcard .parent-line { align-self:flex-start; max-width:100%; font-size:10.5px; font-weight:600; color:#fff; background:var(--sub,#8A919C); padding:2px 7px; border-radius:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
+  .bcard .parent-line:hover { filter:brightness(1.12); }
+  /* 상위 쪽 배지는 건수 정보라 색이 필요 없다 — 무채색으로 두어 분류 색과 경쟁하지 않게 */
+  .sb-badge { font-size:10.5px; color:#3C424C; background:#E9ECF1; padding:1px 5px; border-radius:3px; font-weight:700; margin-right:6px; font-variant-numeric:tabular-nums; }
   .ck-hint { font-size:12px; color:#98A0AB; padding:6px 2px; }
   .ck-list { display:flex; flex-direction:column; }
   .ck-item { display:flex; align-items:center; gap:9px; padding:5px 2px; border-bottom:1px solid #F4F6F8; }
@@ -222,33 +227,3 @@
   .opt-name:focus { border-color:#2F6FED; background:#fff; }
   .opt-done { flex:none; display:flex; align-items:center; gap:4px; font-size:11.5px; color:#5A6270; cursor:pointer; white-space:nowrap; }
   .opt-done input { margin:0; cursor:pointer; accent-color:#2FA84F; }
-</style>
-</head>
-<body>
-<div class="app">
-  <aside>
-    <div class="brand"><b>MYWORK</b><span>개인 업무 관리 · 박진혁</span></div>
-    <nav id="nav"></nav>
-    <div style="flex:1"></div>
-    <div class="cats"><h6>업무분류</h6><div id="sidebar-cats" style="display:flex;flex-direction:column;gap:0"></div></div>
-  </aside>
-  <main>
-    <header>
-      <div class="vtitle" id="view-title"></div>
-      <div class="grow"></div>
-      <input id="q" placeholder="태스크 검색">
-      <select id="f-category"></select>
-      <select id="f-type"></select>
-      <select id="f-priority"></select>
-      <button class="toggle" id="hide-done" title="완료된 태스크를 목록·보드·캘린더·타임라인에서 감춥니다">완료 숨김</button>
-      <button class="toggle" id="open-archive" title="오래된 완료 태스크를 보관하거나 복원합니다">정리</button>
-      <button class="toggle" id="open-settings" title="업무유형·진행상황·우선순위·업무분류를 관리합니다">설정</button>
-      <button class="btn-primary" id="new-task">＋ 새 태스크</button>
-    </header>
-    <div id="viewport"></div>
-  </main>
-</div>
-<div id="modal-root"></div>
-<script type="module" src="./app.js"></script>
-</body>
-</html>
