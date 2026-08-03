@@ -134,7 +134,8 @@ function filtered() {
     (S.fCategory === 'all' || t.category === S.fCategory) &&
     (S.fType === 'all' || t.type === S.fType) &&
     (S.fPriority === 'all' || t.priority === S.fPriority) &&
-    (!q || t.title.toLowerCase().includes(q) || (t.memo || '').toLowerCase().includes(q)));
+    (!q || t.title.toLowerCase().includes(q) || (t.memo || '').toLowerCase().includes(q) ||
+      (t.subtasks ?? []).some((s) => s.title.toLowerCase().includes(q)))); // 세부 항목을 체크리스트에 적어도 검색에 걸린다
 }
 
 const noteById = (id) => [...S.notes, ...S.archNotes].find((n) => n.id === Number(id));
