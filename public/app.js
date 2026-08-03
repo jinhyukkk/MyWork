@@ -50,15 +50,21 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const today = new Date(); today.setHours(0, 0, 0, 0);
 const TODAY = iso(today);
 
+// 뷰가 물리 페이지 분리라 메모리 상태는 뷰를 옮길 때마다 초기화된다 — 필터·검색만 localStorage로 살린다.
+// 설정에서 지워진 값이 남아 있으면 reload()의 기존 검사가 'all'로 되돌린다.
+const FILTER_KEYS = ['query', 'fCategory', 'fType', 'fPriority', 'hideDone'];
+const savedFilters = (() => { try { return JSON.parse(localStorage.getItem('mywork.filters')) || {}; } catch { return {}; } })();
+
 const S = {
   tasks: [], categories: [], types: [], statuses: [], priorities: [],
   opt: { type: new Map(), status: new Map(), priority: new Map(), category: new Map() }, doneSet: new Set(),
   settings: null,
   view: document.body.dataset.view || 'summary',
-  query: '', fCategory: 'all', fType: 'all', fPriority: 'all',
+  query: savedFilters.query ?? '', fCategory: savedFilters.fCategory ?? 'all',
+  fType: savedFilters.fType ?? 'all', fPriority: savedFilters.fPriority ?? 'all',
   sortKey: 'due', sortDir: 1,
   calMonth: TODAY.slice(0, 7),
-  hideDone: false,
+  hideDone: savedFilters.hideDone ?? false,
   modal: null, archive: null, newSub: '', dragId: null, dragSub: null, dragOpt: null, dragOptKind: null, error: '',
   reSel: null, // 지연 일괄 재조정 선택. null = 전부 선택(기본값)
   pending: null, // 되돌리기 대기 중인 삭제 { id, title, timer }
@@ -749,6 +755,7 @@ function viewModal() {
 
 // ── 렌더 ─────────────────────────────────────────────
 function render() {
+  localStorage.setItem('mywork.filters', JSON.stringify(Object.fromEntries(FILTER_KEYS.map((k) => [k, S[k]]))));
   const all = filtered();
   // '완료 숨김'은 작업용 뷰에만 적용한다. 요약은 완료 건수·진척률을 보여야 하므로 제외.
   const visible = S.hideDone ? all.filter((t) => !isDone(t.status)) : all;
@@ -1249,4 +1256,5 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.dataset?.act === 'opt-name') e.target.blur();
 });
 
+document.getElementById('q').value = S.query; // 검색창은 정적 DOM이라 복원값을 한 번 넣어 준다
 reload().catch((e) => { document.getElementById('viewport').innerHTML = `<div class="card empty">서버 연결 실패: ${esc(e.message)}</div>`; });
