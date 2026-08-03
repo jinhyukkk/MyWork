@@ -173,6 +173,54 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: 'list_notes',
+    description: '메모 목록을 조회한다(Keep 스타일). 고정된 메모가 앞, 이후 수정일 역순.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        q: str('제목·내용 부분 일치 검색어'),
+        category: str('업무분류명 (정확히 일치)'),
+        task_id: { type: 'integer', description: '이 태스크에 연결된 메모만' },
+        archived: { type: 'boolean', description: 'true면 보관된 메모만 조회 (기본은 보관분 제외)' },
+      },
+    },
+  },
+  {
+    name: 'create_note',
+    description: '메모를 만든다. title/body 중 하나는 있어야 한다. task_id로 태스크에 연결할 수 있다.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: str('제목'),
+        body: str('내용'),
+        category: str('업무분류 (선택). 없는 분류면 새로 만든다'),
+        pinned: { type: 'boolean', description: '상단 고정 여부' },
+        task_id: { type: ['integer', 'null'], description: '연결할 태스크 id' },
+      },
+    },
+  },
+  {
+    name: 'update_note',
+    description: '메모를 부분 수정한다. 넘긴 필드만 바뀐다. task_id: null이면 연결 해제, archived로 보관/복원.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'integer', description: '메모 id' },
+        title: str('제목'), body: str('내용'),
+        category: str('업무분류. 없는 분류면 새로 만든다'),
+        pinned: { type: 'boolean', description: '상단 고정 여부' },
+        archived: { type: 'boolean', description: '보관 여부' },
+        task_id: { type: ['integer', 'null'], description: '연결할 태스크 id (null이면 해제)' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'delete_note',
+    description: '메모를 삭제한다.',
+    inputSchema: { type: 'object', properties: { id: { type: 'integer', description: '메모 id' } }, required: ['id'] },
+  },
 ];
 
 const text = (v) => ({ content: [{ type: 'text', text: typeof v === 'string' ? v : JSON.stringify(v, null, 1) }] });
@@ -324,6 +372,33 @@ const HANDLERS = {
       },
       overdue, due_today, upcoming,
     });
+  },
+
+  list_notes(a) {
+    const notes = store.listNotes(db, a);
+    return text({ count: notes.length, notes });
+  },
+
+  create_note(a) {
+    // 없는 분류를 지정하면 만들어 준다 — create_task와 같은 이유
+    if (a.category && !store.listCategories(db).includes(a.category)) {
+      const r = store.addCategory(db, a.category);
+      if (r.error) return bad(r.error);
+    }
+    return out(store.createNote(db, a));
+  },
+
+  update_note({ id, ...patch }) {
+    if (patch.category && !store.listCategories(db).includes(patch.category)) {
+      const r = store.addCategory(db, patch.category);
+      if (r.error) return bad(r.error);
+    }
+    return out(store.updateNote(db, id, patch));
+  },
+
+  delete_note({ id }) {
+    const { data } = store.deleteNote(db, id);
+    return data.deleted ? text(`메모 ${id} 삭제 완료`) : bad(`메모 ${id} 없음`);
   },
 };
 

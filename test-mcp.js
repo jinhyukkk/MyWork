@@ -57,9 +57,9 @@ test('MCP 도구 등록 · 태스크/체크리스트 왕복', async () => {
 
   const { result: listed } = await rpc('tools/list', {});
   assert.deepEqual(listed.tools.map((x) => x.name).sort(), [
-    'add_subtask', 'archive_tasks', 'create_task', 'delete_subtask', 'delete_task',
-    'list_categories', 'list_tasks', 'restore_task', 'today_brief', 'update_subtask', 'update_task',
-    'weekly_review',
+    'add_subtask', 'archive_tasks', 'create_note', 'create_task', 'delete_note', 'delete_subtask',
+    'delete_task', 'list_categories', 'list_notes', 'list_tasks', 'restore_task', 'today_brief',
+    'update_note', 'update_subtask', 'update_task', 'weekly_review',
   ]);
 
   // 시드 15건이 그대로 보인다
@@ -197,4 +197,36 @@ test('today_brief 버킷 분류', async (t) => {
   assert.ok([...only.overdue, ...only.due_today, ...only.upcoming].every((x) => x.category === '투자심의AI'));
 
   await call('delete_task', { id: late.id });
+});
+
+test('메모 도구 왕복', async () => {
+  const note = await json('create_note', { title: '회의 아이디어', body: '파일럿 범위 축소안', category: '기타' });
+  assert.equal(note.pinned, 0);
+
+  // 태스크 연결 + 고정
+  const task = await json('create_task', { title: '메모 연결용' });
+  const linked = await json('update_note', { id: note.id, task_id: task.id, pinned: true });
+  assert.equal(linked.task_id, task.id);
+  assert.equal(linked.pinned, 1);
+  assert.deepEqual((await json('list_notes', { task_id: task.id })).notes.map((n) => n.id), [note.id]);
+
+  // 없는 분류를 주면 만들어 준다 (create_task와 동일)
+  const catNote = await json('create_note', { title: '새 분류 메모', category: '메모전용분류' });
+  assert.equal(catNote.category, '메모전용분류');
+  assert.ok((await json('list_categories')).some((c) => c.name === '메모전용분류'));
+
+  // 빈 메모 거부
+  assert.equal((await call('create_note', { title: '', body: '  ' })).isError, true);
+
+  // 보관하면 기본 조회에서 빠진다
+  await call('update_note', { id: note.id, archived: true });
+  assert.equal((await json('list_notes', { q: '축소안' })).count, 0);
+  assert.ok((await json('list_notes', { archived: true })).notes.some((n) => n.id === note.id));
+
+  // 삭제 + 없는 id는 오류
+  assert.equal((await call('delete_note', { id: note.id })).text, `메모 ${note.id} 삭제 완료`);
+  assert.equal((await call('delete_note', { id: note.id })).isError, true);
+
+  await call('delete_note', { id: catNote.id });
+  await call('delete_task', { id: task.id });
 });
