@@ -578,14 +578,16 @@ function viewParent(m) {
     return `<div class="field"><label>상위 태스크</label>
       <div class="ck-hint">하위 태스크 ${kids.length}건을 가지고 있어 다른 태스크의 하위로 넣을 수 없습니다.</div></div>`;
   }
-  const cand = S.tasks.filter((t) => t.id !== m.id && t.parent_id == null);
+  // 완료 건은 후보에서 뺀다 — 반복 회차가 같은 제목으로 쌓여 구분이 안 되고, 끝난 일 밑에 새 일을 붙일 이유도 없다.
+  // 단 이미 연결된 상위는 완료여도 남긴다 — 빼면 저장할 때 연결이 조용히 끊긴다(보관과 같은 이유).
+  const cand = S.tasks.filter((t) => t.id !== m.id && t.parent_id == null && (!isDone(t.status) || t.id === m.parent_id));
   // 보관된 태스크가 상위인 경우 목록에 없다 — 선택지를 만들어 두지 않으면 저장할 때 연결이 조용히 끊긴다
   const keep = m.parent_id && !cand.some((t) => t.id === m.parent_id)
     ? `<option value="${m.parent_id}" selected>#${m.parent_id} (보관됨)</option>` : '';
   return `<div class="field"><label>상위 태스크</label>
     <select id="d-parent">
       <option value="">없음</option>${keep}
-      ${cand.map((t) => `<option value="${t.id}" ${t.id === m.parent_id ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}
+      ${cand.map((t) => `<option value="${t.id}" ${t.id === m.parent_id ? 'selected' : ''}>${esc(t.title)} · ${md(t.due)}</option>`).join('')}
     </select></div>`;
 }
 
@@ -699,7 +701,7 @@ function viewNoteModal() {
       <div class="field"><label>연결 태스크</label>
         <select id="n-task"><option value="">없음</option>
           ${n.task_id && !taskById(n.task_id) ? `<option value="${n.task_id}" selected>#${n.task_id} (보관됨)</option>` : ''}
-          ${S.tasks.map((t) => `<option value="${t.id}" ${t.id === n.task_id ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}
+          ${S.tasks.map((t) => `<option value="${t.id}" ${t.id === n.task_id ? 'selected' : ''}>${esc(t.title)} · ${md(t.due)}</option>`).join('')}
         </select>
         <div class="ck-hint">연결하면 태스크 모달에서도 이 메모가 보입니다.</div></div>
     </div>
