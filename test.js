@@ -407,3 +407,61 @@ test('구버전 categories 테이블 → options 이관', (t) => {
   assert.equal(db.prepare('SELECT COUNT(*) n FROM tasks').get().n, 1, '기존 DB에는 예시 데이터를 넣지 않는다');
   db.close(); // 윈도우에서는 열린 파일을 지울 수 없다
 });
+
+test('메모 — CRUD + 검증 + 태스크 연동 + 보관', async (t) => {
+  const db = openDb(':memory:');
+  const srv = createApp(db).listen(0);
+  t.after(() => srv.close());
+  const b = `http://localhost:${srv.address().port}`;
+  const c = (p, method = 'GET', body) =>
+    fetch(b + p, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
+
+  // 생성 — title/body 중 하나만 있어도 된다. 분류는 선택.
+  const note = await (await c('/api/notes', 'POST', { title: '아이디어', body: '파일럿 범위 축소안', category: '기타' })).json();
+  assert.equal(note.pinned, 0);
+  assert.equal(note.color, '', '기본 카드색');
+  const bodyOnly = await (await c('/api/notes', 'POST', { body: '제목없는메모' })).json();
+  assert.equal(bodyOnly.title, '');
+  assert.equal(bodyOnly.category, null, '분류는 선택');
+
+  // 검증: 둘 다 빈 메모 / 색상 형식 / 없는 태스크 연결은 거부
+  assert.equal((await c('/api/notes', 'POST', { title: '  ', body: '' })).status, 400);
+  assert.equal((await c('/api/notes', 'POST', { title: 'x', color: 'red' })).status, 400);
+  assert.equal((await c('/api/notes', 'POST', { title: 'x', task_id: 9999 })).status, 404);
+
+  // 수정으로도 빈 메모를 만들 수 없다
+  assert.equal((await c(`/api/notes/${note.id}`, 'PATCH', { title: '', body: ' ' })).status, 400);
+  assert.equal((await c('/api/notes/9999', 'PATCH', { title: 'x' })).status, 404);
+
+  // 고정하면 목록 앞으로 온다
+  await c(`/api/notes/${bodyOnly.id}`, 'PATCH', { pinned: true });
+  assert.equal((await (await c('/api/notes')).json())[0].id, bodyOnly.id, '고정 메모가 앞');
+
+  // 색상 지정
+  const colored = await (await c(`/api/notes/${note.id}`, 'PATCH', { color: '#FBF3C2' })).json();
+  assert.equal(colored.color, '#FBF3C2');
+
+  // 태스크 연결 + 태스크를 지워도 메모는 남는다 (SET NULL)
+  const task = await (await c('/api/tasks', 'POST', {
+    title: '연결 태스크', type: '개발', status: '시작 전', category: '기타',
+    priority: 'Medium', start: '2026-08-01', due: '2026-08-10',
+  })).json();
+  await c(`/api/notes/${note.id}`, 'PATCH', { task_id: task.id });
+  assert.deepEqual((await (await c(`/api/notes?task_id=${task.id}`)).json()).map((n) => n.id), [note.id], 'task_id 필터');
+  await c(`/api/tasks/${task.id}`, 'DELETE');
+  assert.equal((await (await c('/api/notes')).json()).find((n) => n.id === note.id).task_id, null,
+    '태스크를 지워도 메모는 살아남고 연결만 끊긴다');
+
+  // 검색 (제목·내용) + 분류 필터
+  assert.equal((await (await c(`/api/notes?q=${encodeURIComponent('축소안')}`)).json()).length, 1);
+  assert.equal((await (await c(`/api/notes?category=${encodeURIComponent('기타')}`)).json()).length, 1);
+
+  // 보관 — 기본 목록에서 빠지고 archived=1로 보인다
+  await c(`/api/notes/${note.id}`, 'PATCH', { archived: true });
+  assert.ok(!(await (await c('/api/notes')).json()).some((n) => n.id === note.id));
+  assert.ok((await (await c('/api/notes?archived=1')).json()).some((n) => n.id === note.id));
+
+  // 삭제
+  assert.equal((await c(`/api/notes/${bodyOnly.id}`, 'DELETE')).status, 204);
+  assert.ok(!(await (await c('/api/notes')).json()).some((n) => n.id === bodyOnly.id));
+});

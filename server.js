@@ -50,6 +50,15 @@ export function createApp(db = openDb(process.env.MYWORK_DB_PATH)) {
   app.patch('/api/subtasks/:id', (req, res) => reply(res, store.updateSubtask(db, req.params.id, req.body ?? {})));
   app.delete('/api/subtasks/:id', (req, res) => { store.deleteSubtask(db, req.params.id); res.status(204).end(); });
 
+  // 메모 (Keep 스타일). 전환 전용 API는 없다 — 프론트가 POST /api/tasks 후 task_id를 PATCH한다.
+  app.get('/api/notes', (req, res) => res.json(store.listNotes(db, {
+    archived: req.query.archived === '1',
+    q: req.query.q, category: req.query.category, task_id: req.query.task_id,
+  })));
+  app.post('/api/notes', (req, res) => reply(res, store.createNote(db, req.body ?? {}), 201));
+  app.patch('/api/notes/:id', (req, res) => reply(res, store.updateNote(db, req.params.id, req.body ?? {})));
+  app.delete('/api/notes/:id', (req, res) => { store.deleteNote(db, req.params.id); res.status(204).end(); });
+
   // 분류 전용 라우트는 없다 — kind='category'로 /api/options/* 를 그대로 쓴다.
 
   return app;

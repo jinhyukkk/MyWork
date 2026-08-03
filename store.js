@@ -375,3 +375,88 @@ export function addCategory(db, name) {
   const r = addOption(db, 'category', { name: clean });
   return r.error ? r : ok({ name: clean });
 }
+
+// ── 메모 (Keep 스타일) ────────────────────────────────
+/** 메모 입력 검증. 태스크의 pick()과 달리 category·task_id가 null을 허용해 별도로 쓴다. */
+function pickNote(db, body) {
+  const out = {};
+  if ('title' in body) {
+    if (typeof body.title !== 'string') return fail('title 값이 올바르지 않습니다');
+    out.title = body.title.trim();
+  }
+  if ('body' in body) {
+    if (typeof body.body !== 'string') return fail('body 값이 올바르지 않습니다');
+    out.body = body.body;
+  }
+  if ('color' in body) {
+    if (body.color !== '' && !COLOR.test(body.color)) return fail('색상은 #RRGGBB 형식이거나 빈 값이어야 합니다');
+    out.color = body.color;
+  }
+  if ('category' in body) {
+    if (body.category === null || body.category === '') out.category = null;
+    else if (typeof body.category === 'string' && body.category.trim()) out.category = body.category.trim();
+    else return fail('category 값이 올바르지 않습니다');
+  }
+  for (const k of ['pinned', 'archived']) {
+    if (!(k in body)) continue;
+    const v = subDone(body[k]);
+    if (v === null) return fail(`${k} 값이 올바르지 않습니다`);
+    out[k] = v;
+  }
+  if ('task_id' in body) {
+    if (body.task_id === null || body.task_id === '' || body.task_id === 0) out.task_id = null;
+    else {
+      const tid = Number(body.task_id);
+      if (!Number.isInteger(tid) || tid <= 0) return fail('task_id 값이 올바르지 않습니다');
+      if (!db.prepare('SELECT 1 FROM tasks WHERE id = ?').get(tid)) return fail('연결할 태스크 없음', 404);
+      out.task_id = tid;
+    }
+  }
+  return ok(out);
+}
+
+export const getNote = (db, id) => db.prepare('SELECT * FROM notes WHERE id = ?').get(id);
+
+/** 고정이 앞, 그 안에서는 수정일 역순. 필터는 태스크와 같은 이유로 JS에서 건다. */
+export function listNotes(db, filter = {}) {
+  const want = filter.archived === true ? 1 : 0;
+  const rows = db.prepare('SELECT * FROM notes WHERE archived = ? ORDER BY pinned DESC, updated_at DESC, id DESC').all(want);
+  const q = (filter.q || '').trim().toLowerCase();
+  return rows.filter((n) =>
+    (!filter.category || n.category === filter.category) &&
+    (!filter.task_id || n.task_id === Number(filter.task_id)) &&
+    (!q || n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q)));
+}
+
+export function createNote(db, body) {
+  const { data, error, status } = pickNote(db, body ?? {});
+  if (error) return fail(error, status);
+  if (!(data.title || data.body?.trim())) return fail('제목이나 내용 중 하나는 있어야 합니다');
+  const { lastInsertRowid } = db
+    .prepare('INSERT INTO notes (title, body, color, category, pinned, task_id) VALUES (?,?,?,?,?,?)')
+    .run(data.title ?? '', data.body ?? '', data.color ?? '', data.category ?? null, data.pinned ?? 0, data.task_id ?? null);
+  return ok(getNote(db, lastInsertRowid));
+}
+
+export function updateNote(db, id, body) {
+  const cur = getNote(db, id);
+  if (!cur) return fail('메모 없음', 404);
+  const { data, error, status } = pickNote(db, body ?? {});
+  if (error) return fail(error, status);
+  const merged = { ...cur, ...data };
+  if (!(merged.title.trim() || merged.body.trim())) return fail('제목이나 내용 중 하나는 있어야 합니다');
+  if (!Object.keys(data).length) return ok(cur);
+  // 내용이 바뀔 때만 수정 시각을 민다 — 고정·색상 토글로 카드가 재정렬되지 않게
+  if (('title' in data && data.title !== cur.title) || ('body' in data && data.body !== cur.body)) {
+    data.updated_at = stamp(db);
+  }
+  const keys = Object.keys(data);
+  db.prepare(`UPDATE notes SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`)
+    .run(...keys.map((k) => data[k]), cur.id);
+  return ok(getNote(db, cur.id));
+}
+
+export function deleteNote(db, id) {
+  const { changes } = db.prepare('DELETE FROM notes WHERE id = ?').run(id);
+  return ok({ deleted: Number(changes) });
+}

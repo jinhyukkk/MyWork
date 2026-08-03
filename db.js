@@ -75,6 +75,20 @@ export function openDb(file = path.join(ROOT, 'data', 'mywork.db')) {
       done  INTEGER NOT NULL DEFAULT 0,          -- status 전용
       UNIQUE(kind, name)
     );
+    CREATE TABLE IF NOT EXISTS notes (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      title      TEXT NOT NULL DEFAULT '',
+      body       TEXT NOT NULL DEFAULT '',
+      color      TEXT NOT NULL DEFAULT '',      -- '' = 기본 카드색, 아니면 #RRGGBB
+      category   TEXT,                          -- 업무분류 재사용. NULL 허용 — 메모에 분류는 선택이다
+      pinned     INTEGER NOT NULL DEFAULT 0,
+      archived   INTEGER NOT NULL DEFAULT 0,
+      -- 태스크를 지워도 메모는 남는다 — 하위 태스크와 같은 이유(SET NULL)
+      task_id    INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_notes_task ON notes(task_id);
   `);
   migrate(db);
   if (fresh) seed(db);
