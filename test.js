@@ -465,3 +465,24 @@ test('메모 — CRUD + 검증 + 태스크 연동 + 보관', async (t) => {
   assert.equal((await c(`/api/notes/${bodyOnly.id}`, 'DELETE')).status, 204);
   assert.ok(!(await (await c('/api/notes')).json()).some((n) => n.id === bodyOnly.id));
 });
+
+test('메모 — 분류 이름변경은 따라오고 삭제는 NULL', async (t) => {
+  const db = openDb(':memory:');
+  const srv = createApp(db).listen(0);
+  t.after(() => srv.close());
+  const b = `http://localhost:${srv.address().port}`;
+  const c = (p, method = 'GET', body) =>
+    fetch(b + p, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
+
+  const cats = await (await c('/api/options/category', 'POST', { name: '메모분류' })).json();
+  const tmp = cats.find((o) => o.name === '메모분류');
+  const note = await (await c('/api/notes', 'POST', { title: '분류 테스트', category: '메모분류' })).json();
+
+  // 이름을 바꾸면 메모의 분류도 함께 바뀐다 (태스크와 동일)
+  await c(`/api/options/${tmp.id}`, 'PATCH', { name: '바뀐분류' });
+  assert.equal((await (await c('/api/notes')).json()).find((n) => n.id === note.id).category, '바뀐분류');
+
+  // 삭제하면 태스크는 남은 첫 항목으로 이관되지만, 메모는 분류가 선택이라 NULL로 푼다
+  await c(`/api/options/${tmp.id}`, 'DELETE');
+  assert.equal((await (await c('/api/notes')).json()).find((n) => n.id === note.id).category, null);
+});

@@ -87,6 +87,8 @@ export function updateOption(db, id, { name, color, done } = {}) {
     .run(...keys.map((k) => patch[k]), cur.id);
   if (patch.name && patch.name !== cur.name) {
     db.prepare(`UPDATE tasks SET ${cur.kind} = ? WHERE ${cur.kind} = ?`).run(patch.name, cur.name);
+    // 메모의 분류도 함께 옮긴다 — 참조가 끊기면 안 되는 건 태스크와 같다
+    if (cur.kind === 'category') db.prepare('UPDATE notes SET category = ? WHERE category = ?').run(patch.name, cur.name);
   }
   return ok(listOptions(db, cur.kind));
 }
@@ -101,6 +103,8 @@ export function deleteOption(db, id) {
     return fail('완료로 표시된 진행상황이 최소 하나는 있어야 합니다');
   }
   const moved = db.prepare(`UPDATE tasks SET ${cur.kind} = ? WHERE ${cur.kind} = ?`).run(rest[0].name, cur.name);
+  // 메모는 분류가 필수가 아니다 — 임의 항목으로 옮기면 정보를 지어내는 셈이라 NULL로 푼다
+  if (cur.kind === 'category') db.prepare('UPDATE notes SET category = NULL WHERE category = ?').run(cur.name);
   db.prepare('DELETE FROM options WHERE id = ?').run(cur.id);
   return ok({ options: listOptions(db, cur.kind), movedTo: rest[0].name, moved: Number(moved.changes) });
 }
