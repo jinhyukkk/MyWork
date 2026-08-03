@@ -61,7 +61,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         title: str('제목'),
-        status: enumOf(STATUSES, '진행상황 (기본 시작 전)'),
+        status: enumOf(STATUSES, '진행상황 (생략 시 첫 번째 미완료 상태)'),
         category: str('업무분류 (기본 첫 번째 분류). 없는 분류면 새로 만든다'),
         start: str('시작일 YYYY-MM-DD (기본 오늘)'),
         due: { type: ['string', 'null'], description: '마감일 YYYY-MM-DD. 생략하거나 null이면 마감 없음(«언젠가»)' },

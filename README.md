@@ -380,6 +380,7 @@ Claude Code에서 태스크·체크리스트를 직접 다룰 수 있다. 프로
   - `done_at`이 없어 마감일로 갈음한 건에는 `estimated: true`가 붙는다. 이 기능을 넣기 전에 완료한 태스크가 전부 여기 해당한다.
 - `create_task` / `update_task`에 없는 분류명을 주면 분류를 새로 만든다.
 - 웹 서버와 DB 파일을 공유한다(WAL + `busy_timeout`). MCP로 바꾼 내용은 **브라우저를 새로고침해야** 보인다.
+- **설정(진행상황·업무분류)을 바꾸면 MCP 서버를 재시작해야 한다.** 도구 스키마의 `status` enum은 기동 시점의 DB 값으로 굳고, 도구 목록은 연결당 한 번만 전송된다. 재시작 전에는 새로 만든 상태를 `create_task`에 줄 수 없다.
 - `MYWORK_DB_PATH`로 DB 경로를 바꿀 수 있다. 웹 서버(`server.js`)도 같은 환경변수를 본다.
 
 ### 아침 브리핑 자동화
@@ -393,3 +394,13 @@ Claude Code에서 태스크·체크리스트를 직접 다룰 수 있다. 프로
 `data/mywork.db`에 저장. **DB 파일이 새로 만들어질 때만** 예시 태스크 15건과 기본 분류 8종이 들어간다(태스크를 전부 지워도 다시 생기지 않음). 초기화하려면 `data/` 디렉토리를 삭제하고 재실행.
 
 기존 DB는 첫 실행 때 자동 이관된다: `categories` 테이블의 분류가 순서 그대로 `options(kind='category')`로 옮겨지고 구 테이블은 삭제된다. 분류에 색이 없었으므로 기본 팔레트를 순서대로 입힌다. 이관 후에는 **웹 서버와 MCP 서버를 모두 재시작**해야 한다(구버전 프로세스는 사라진 테이블을 계속 조회한다).
+
+### 백업 — `cp`가 아니라 `VACUUM INTO`
+
+WAL 모드라 최근 쓰기가 `mywork.db-wal`에 있고 `mywork.db` 본체에는 아직 없다. **파일을 복사하면 텅 빈 DB를 얻는다.**
+
+```bash
+node -e "new (require('node:sqlite').DatabaseSync)('data/mywork.db').exec(\"VACUUM INTO 'data/backup.db'\")"
+```
+
+`VACUUM INTO`는 WAL을 반영한 일관된 스냅샷을 만들고, 열려 있는 서버를 멈출 필요도 없다. 복원은 반대로 파일을 되돌려 놓으면 된다(이때는 서버를 내리고 `-wal`·`-shm`도 함께 지운다).
