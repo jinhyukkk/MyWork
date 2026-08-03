@@ -284,6 +284,9 @@ const COLS = [
 
 function viewList(list) {
   const sorted = list.slice().sort((a, b) => {
+    // 완료 행은 정렬 기준과 무관하게 항상 하단 — 첫 화면이 끝난 일로 시작하지 않게
+    const d = isDone(a.status) - isDone(b.status);
+    if (d) return d;
     const k = S.sortKey;
     let av, bv;
     if (k === 'due') { av = endDate(a); bv = endDate(b); } // 완료 행은 보이는 값(완료일)으로 줄 세운다
