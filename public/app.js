@@ -922,6 +922,11 @@ function render() {
   const renderers = { summary: viewSummary, list: viewList, board: viewBoard, calendar: viewCalendar, project: viewProject, notes: viewNotes };
   document.getElementById('viewport').innerHTML = renderers[S.view](S.view === 'notes' ? filteredNotes() : list);
   document.getElementById('modal-root').innerHTML = viewModal() + viewNoteModal() + viewToast();
+  // 모달이 떠 있으면 뒤쪽을 inert로 — Tab이 배경으로 새어 나가지 않는다.
+  // <dialog>+showModal()이면 공짜지만, 매 렌더마다 innerHTML을 갈아끼우는 구조라
+  // 다시 showModal()을 불러야 하고 그때 포커스가 강제로 첫 요소로 튄다(아래 규칙과 충돌).
+  // 빠른 작성·인라인 추가는 backdrop이 없어 그대로 남는다 — 그쪽은 배경에 포커스가 있어야 한다.
+  document.querySelector('.app').inert = !!document.querySelector('#modal-root .backdrop');
   // 지정된 경우에만 포커스 — 체크리스트 조작 중 제목으로 커서가 튀지 않게
   if (S.focusId) { document.getElementById(S.focusId)?.focus(); S.focusId = null; }
 }
