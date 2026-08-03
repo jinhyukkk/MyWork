@@ -114,7 +114,10 @@ test('weekly_review — 끝낸 일 구간 집계', async () => {
   const today = (await json('today_brief')).today;
 
   // 이번 주에 끝낸 일: 만들고 완료로 넘기면 done_at이 오늘로 찍힌다
-  const a = await json('create_task', { title: '이번주 완료건', category: '회고테스트', due: '2020-05-05', start: '2020-05-01' });
+  const a = await json('create_task', {
+    title: '이번주 완료건', category: '회고테스트', due: '2020-05-05', start: '2020-05-01',
+    memo: '08/03 · 배포까지 완료\n07/28 · 리뷰 반영',
+  });
   await call('update_task', { id: a.id, status: '완료' });
   // 이번 주 마감인데 아직 미완료 → 이월
   const b = await json('create_task', { title: '이번주 이월건', category: '회고테스트', due: today, start: today, status: '진행 중' });
@@ -127,6 +130,8 @@ test('weekly_review — 끝낸 일 구간 집계', async () => {
   assert.ok(done, '오늘 완료한 건이 들어온다');
   assert.equal(done.done, today, '마감일(2020-05-05)이 아니라 완료 시각으로 잡힌다');
   assert.ok(!done.estimated, 'done_at이 있으므로 추정치가 아니다');
+  // 경과 로그는 최신이 위 — 주간보고에는 맨 윗줄만 붙는다
+  assert.equal(done.note, '08/03 · 배포까지 완료');
   assert.equal(r.summary.completed, r.completed.length);
   assert.equal(r.summary.by_category['회고테스트'], 1);
 
@@ -148,6 +153,13 @@ test('weekly_review — 끝낸 일 구간 집계', async () => {
   await call('archive_tasks', { before: iso(new Date(new Date(today).getTime() + DAY)) });
   const afterArchive = await json('weekly_review', { since: today, until: today, category: '회고테스트' });
   assert.ok(afterArchive.completed.find((x) => x.id === a.id)?.archived, '보관분도 끝낸 일로 센다');
+
+  // 메모가 없으면 note 키 자체가 붙지 않는다 (빈 문자열이 아니라 부재).
+  // 앞선 단정들이 완료 목록 전체를 비교하므로 이 건은 맨 끝에서 만든다.
+  const bare = await json('create_task', { title: '메모없는 완료건', category: '회고테스트' });
+  await call('update_task', { id: bare.id, status: '완료' });
+  const withBare = await json('weekly_review', { since: today, until: today, category: '회고테스트' });
+  assert.ok(!('note' in withBare.completed.find((x) => x.id === bare.id)), '메모 없는 건에는 note가 없다');
 
   // 뒤집힌 구간은 오류
   assert.equal((await call('weekly_review', { since: today, until: '2020-01-01' })).isError, true);

@@ -148,7 +148,7 @@ const TOOLS = [
   },
   {
     name: 'weekly_review',
-    description: '기간 안에 끝낸 일을 모아 준다. 주간보고·회고에 쓴다. 기본 구간은 이번 주 월요일~오늘이며, weeks_ago로 지난 주를 본다. 기준은 완료 시각이고, 그 값이 없는 예전 태스크는 마감일로 갈음한다(estimated: true로 표시).',
+    description: '기간 안에 끝낸 일을 모아 준다. 주간보고·회고에 쓴다. 기본 구간은 이번 주 월요일~오늘이며, weeks_ago로 지난 주를 본다. 기준은 완료 시각이고, 그 값이 없는 예전 태스크는 마감일로 갈음한다(estimated: true로 표시). 각 건에는 메모 맨 윗줄(=가장 최근 경과)이 note로 붙어 보고 초안에 바로 쓸 수 있다.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -311,6 +311,8 @@ const HANDLERS = {
       .sort((a, b) => store.endedOn(a).localeCompare(store.endedOn(b)))
       .map((t) => ({
         id: t.id, title: t.title, category: t.category, done: store.endedOn(t), due: t.due,
+        // 경과 로그의 맨 윗줄 = 가장 최근 기록. 주간보고 초안이 여기서 바로 나온다.
+        ...(t.memo?.trim() ? { note: t.memo.trim().split('\n')[0] } : {}),
         ...(t.repeat_days ? { repeat_days: t.repeat_days } : {}),
         ...(t.archived ? { archived: true } : {}),
         // done_at이 없어 마감일로 갈음한 건 — 실제로 끝낸 날이 아닐 수 있다

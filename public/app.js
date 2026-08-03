@@ -66,6 +66,13 @@ const parseD = (s) => { const p = String(s || '').split('-').map(Number); return
 const shift = (base, n) => iso(new Date(base.getTime() + n * DAY));
 const md = (s) => (s ? s.slice(5).replace('-', '/') : '');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+/**
+ * 메모 안의 URL을 클릭 가능하게. 업무가 ITSM·메일·문서에서 오는데 붙여넣어도 링크가 아니었다.
+ * **반드시 esc() 다음에** 쓴다 — 순서가 바뀌면 URL 안의 따옴표가 href 속성을 탈출한다.
+ * esc를 이미 거쳤으므로 매칭 결과에는 따옴표가 남아 있지 않다(&quot;로 바뀐 뒤다).
+ */
+const linkify = (escaped) => escaped.replace(/https?:\/\/[^\s<]+/g,
+  (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
 
 const today = new Date(); today.setHours(0, 0, 0, 0);
 const TODAY = iso(today);
@@ -350,7 +357,7 @@ function viewList(list) {
     return `<div class="grid-row trow">
       <div class="main ${t.parent_id ? 'is-sub' : ''}" style="${sub}" data-act="open" data-id="${t.id}">
         <span class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? 'var(--text-4)' : 'var(--text)'}">${t.parent_id ? '<span class="sub-mark">↳</span>' : ''}${esc(t.title)}</span>
-        <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${folds.has(t.id) ? `<b class="fold-badge" data-act="fold" data-id="${t.id}">${S.openSeries.has(seriesKey(t)) ? '− 이전 회차 접기' : `＋ 이전 회차 ${folds.get(t.id)}건`}</b>` : ''}${childBadge(c, t.id)}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${esc(t.memo || '—')}</span>
+        <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${folds.has(t.id) ? `<b class="fold-badge" data-act="fold" data-id="${t.id}">${S.openSeries.has(seriesKey(t)) ? '− 이전 회차 접기' : `＋ 이전 회차 ${folds.get(t.id)}건`}</b>` : ''}${childBadge(c, t.id)}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${t.memo ? linkify(esc(t.memo)) : '—'}</span>
       </div>
       <div class="cell"><span class="chip" style="background:${STATUS_BG(t.status)};color:${STATUS_COLOR(t.status)}">${esc(t.status)}</span></div>
       <div class="cell" style="color:var(--text-3)">${esc(t.category)}</div>
@@ -866,7 +873,11 @@ function viewModal() {
         ${m.repeat_days ? `<div class="ck-hint">완료로 바꾸면 마감일 +${m.repeat_days}일로 다음 회차가 자동 생성됩니다.</div>` : ''}
       </div>
       <div class="field"><label>설명 · 메모</label>
-        <textarea id="d-memo" rows="4" placeholder="세부 내용, 링크 등">${esc(m.memo)}</textarea></div>
+        <div class="ck-add">
+          <input id="d-log" placeholder="경과 한 줄 — 날짜가 붙어 맨 위에 쌓입니다">
+          <button class="btn-sm" data-act="log-add">경과 추가</button>
+        </div>
+        <textarea id="d-memo" rows="5" placeholder="세부 내용, 링크 등">${esc(m.memo)}</textarea></div>
       ${viewChecklist(m)}
       ${viewChildren(m)}
       ${viewTaskNotes(m)}
@@ -1032,6 +1043,27 @@ async function addSubtask() {
   if (!title || !S.modal?.id) return;
   S.focusId = 'd-newsub';
   await mutate(async () => { await send(`/api/tasks/${S.modal.id}/subtasks`, 'POST', { title }); S.newSub = ''; });
+}
+
+/**
+ * 경과 로그 한 줄을 memo 맨 위에 붙인다 — 최신이 위.
+ * 실사용에서 memo를 이미 «→ 내부 논의 → 차주 회신» 식의 경과 기록으로 쓰고 있었다.
+ * 앱이 날짜를 대신 찍어줄 뿐이고, 스키마는 그대로다.
+ * 기존 태스크는 체크리스트와 같이 즉시 저장, 신규는 저장 버튼까지 로컬에 쌓인다.
+ * textarea는 그대로 둔다 — 잘못 찍은 줄을 지울 수단이 필요하다.
+ */
+async function addProgress() {
+  syncDraft();
+  const text = document.getElementById('d-log')?.value.trim();
+  if (!text || !S.modal) return;
+  const line = `${md(TODAY)} · ${text}`;
+  S.modal.memo = S.modal.memo ? `${line}\n${S.modal.memo}` : line;
+  S.focusId = 'd-log';
+  if (!S.modal.id) return render();
+  const memo = S.modal.memo;
+  await mutate(() => send(`/api/tasks/${S.modal.id}`, 'PATCH', { memo }));
+  // 즉시 저장했으므로 스냅샷도 갱신한다 — 안 하면 닫을 때 «저장 안 한 변경» 확인창이 뜬다
+  if (S.modal && !S.error) { S.taskSnap = snap(S.modal, TASK_FIELDS); render(); }
 }
 
 async function saveDraft() {
@@ -1299,6 +1331,7 @@ document.addEventListener('click', (e) => {
   if (act === 'undo') return undoDelete();
   if (act === 'save') return saveDraft();
   if (act === 'sub-add') return addSubtask();
+  if (act === 'log-add') return addProgress();
   if (act === 'child-add') return openChild();
   if (act === 'proj-open') return openProject();
   if (act === 'sub-toggle') { syncDraft(); return mutate(() => send(`/api/subtasks/${el.dataset.sub}`, 'PATCH', { done: el.dataset.done !== '1' })); }
@@ -1474,6 +1507,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.id === 'bq-title') { e.preventDefault(); saveQuickTask(true); }
   if (e.key === 'Enter' && e.target.id === 'pc-title') { e.preventDefault(); saveQuickChild(true); }
   if (e.key === 'Enter' && e.target.id === 'd-newsub') { e.preventDefault(); addSubtask(); }
+  if (e.key === 'Enter' && e.target.id === 'd-log') { e.preventDefault(); addProgress(); }
   if (e.key === 'Enter' && e.target.id === 's-new') { e.preventDefault(); addOption(); }
   if (e.key === 'Enter' && e.target.dataset?.act === 'opt-name') e.target.blur();
   // 전역 단축키 — 입력 중이거나 모달·빠른 추가가 열려 있으면 무시
