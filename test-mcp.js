@@ -78,8 +78,8 @@ test('MCP 도구 등록 · 태스크/체크리스트 왕복', async () => {
   // title만으로 생성 — 나머지는 기본값
   const made = await json('create_task', { title: 'MCP로 만든 태스크' });
   assert.equal(made.status, '시작 전');
-  assert.equal(made.priority, 'Medium');
-  assert.ok(made.start <= made.due);
+  assert.equal(made.due, null, 'due를 주지 않으면 마감 없음 — 가짜 마감을 붙이지 않는다');
+  assert.match(made.start, /^\d{4}-\d{2}-\d{2}$/, '시작일은 오늘로 채워진다');
   assert.deepEqual(made.subtasks, []);
 
   // 없는 분류를 주면 만들어 준다
@@ -159,13 +159,18 @@ test('weekly_review — 끝낸 일 구간 집계', async () => {
 
 test('today_brief 버킷 분류', async (t) => {
   const b = await json('today_brief');
-  const all = [...b.overdue, ...b.due_today, ...b.upcoming];
+  const all = [...b.overdue, ...b.due_today, ...b.upcoming, ...b.someday];
 
   // 완료 태스크는 어느 버킷에도 없어야 한다
   assert.ok(all.every((x) => x.status !== '완료'));
   // 버킷 + later가 미완료 전체와 맞아떨어져야 한다 (누락/중복 없음)
-  assert.equal(b.summary.overdue + b.summary.due_today + b.summary.upcoming + b.summary.later, b.summary.open);
+  assert.equal(
+    b.summary.overdue + b.summary.due_today + b.summary.upcoming + b.summary.someday + b.summary.later,
+    b.summary.open);
   assert.equal(b.summary.overdue, b.overdue.length);
+  // 마감 없는 건은 someday에만 — 지연으로 세지 않는 게 이 버킷의 존재 이유다
+  assert.ok(b.someday.every((x) => x.due === null));
+  assert.ok([...b.overdue, ...b.due_today, ...b.upcoming].every((x) => x.due), '날짜 버킷에는 마감 있는 건만');
 
   // 경계: 오늘 마감은 due_today에만, 예정은 1~7일 사이
   assert.ok(b.due_today.every((x) => x.due === b.today));

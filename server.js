@@ -25,9 +25,7 @@ export function createApp(db = openDb(process.env.MYWORK_DB_PATH)) {
   // 설정 항목은 이름만이 아니라 색상·done 플래그까지 내려간다 (프론트가 색을 직접 들고 있지 않도록)
   app.get('/api/meta', (_req, res) => {
     res.json({
-      types: store.listOptions(db, 'type'),
       statuses: store.listOptions(db, 'status'),
-      priorities: store.listOptions(db, 'priority'),
       categories: store.listOptions(db, 'category'),
     });
   });

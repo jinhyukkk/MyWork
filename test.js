@@ -22,14 +22,14 @@ test('태스크 CRUD + 검증 + 분류 삭제 이관', async (t) => {
   assert.ok(meta.categories.some((o) => o.name === '투자심의AI'));
   assert.equal((await (await call('/api/tasks')).json()).length, 15, '시드 15건');
 
-  const valid = { title: '테스트', type: '개발', status: '시작 전', category: '기타', priority: 'High', start: '2026-08-01', due: '2026-08-10', memo: 'm' };
+  const valid = { title: '테스트', status: '시작 전', category: '기타', start: '2026-08-01', due: '2026-08-10', memo: 'm' };
 
   // 생성
   const created = await (await call('/api/tasks', 'POST', valid)).json();
   assert.equal(created.title, '테스트');
 
   // 검증: 잘못된 enum / 날짜 역전 / 빈 제목은 400
-  for (const bad of [{ ...valid, type: '없는유형' }, { ...valid, start: '2026-09-01' }, { ...valid, title: '  ' }]) {
+  for (const bad of [{ ...valid, status: '없는상태' }, { ...valid, start: '2026-09-01' }, { ...valid, title: '  ' }]) {
     assert.equal((await call('/api/tasks', 'POST', bad)).status, 400);
   }
 
@@ -53,6 +53,100 @@ test('태스크 CRUD + 검증 + 분류 삭제 이관', async (t) => {
   assert.equal((await (await call('/api/tasks')).json()).length, 15);
 });
 
+test('마감 없음 — 지연으로 세지 않고 항상 뒤로 정렬된다', async (t) => {
+  const db = openDb(':memory:');
+  const srv = createApp(db).listen(0);
+  t.after(() => srv.close());
+  const b = `http://localhost:${srv.address().port}`;
+  const c = (p, method = 'GET', body) =>
+    fetch(b + p, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
+
+  // due를 아예 안 줘도, null·빈 문자열로 줘도 «마감 없음»이다
+  const someday = await (await c('/api/tasks', 'POST', { title: '언젠가', status: '시작 전', category: '기타', start: '2020-01-01' })).json();
+  assert.equal(someday.due, null);
+  const viaNull = await (await c('/api/tasks', 'POST', { title: 'null로', status: '시작 전', category: '기타', start: '2020-01-01', due: null })).json();
+  assert.equal(viaNull.due, null);
+  const viaEmpty = await (await c('/api/tasks', 'POST', { title: '빈값으로', status: '시작 전', category: '기타', start: '2020-01-01', due: '' })).json();
+  assert.equal(viaEmpty.due, null);
+
+  // 시작일이 한참 과거여도 지연이 아니다 — 마감이 없으면 «늦었다»를 판정할 기준 자체가 없다
+  const list = await (await c('/api/tasks')).json();
+  const overdue = list.filter((x) => !x.due).filter((x) => x.due < '2026-08-03');
+  assert.equal(overdue.length, 0, '마감 없는 건은 지연 비교에 걸리지 않는다');
+
+  // 마감 없음은 항상 목록 뒤로
+  const dues = list.map((x) => x.due);
+  assert.deepEqual(dues.slice(-3), [null, null, null], '마감 없음이 맨 뒤');
+  assert.ok(dues.slice(0, -3).every(Boolean), '앞쪽에는 마감 있는 건만');
+
+  // 잘못된 날짜는 여전히 400 — «비움»과 «틀림»은 다르다
+  assert.equal((await c('/api/tasks', 'POST',
+    { title: 'x', status: '시작 전', category: '기타', start: '2026-01-01', due: '2026-13-40' })).status, 400);
+
+  // 반복은 마감이 있어야 한다 — 직전 마감 + 주기로 다음 회차를 잡기 때문
+  assert.equal((await c('/api/tasks', 'POST',
+    { title: 'r', status: '시작 전', category: '기타', start: '2026-01-01', repeat_days: 7 })).status, 400);
+  const rep = await (await c('/api/tasks', 'POST',
+    { title: 'r2', status: '시작 전', category: '기타', start: '2026-01-01', due: '2026-01-08', repeat_days: 7 })).json();
+  assert.equal((await c(`/api/tasks/${rep.id}`, 'PATCH', { due: null })).status, 400, '반복 건의 마감은 지울 수 없다');
+
+  // 있던 마감을 지울 수 있고, 지우면 지연 계산에서 빠진다
+  const dated = await (await c('/api/tasks', 'POST',
+    { title: '마감있음', status: '시작 전', category: '기타', start: '2020-01-01', due: '2020-02-01' })).json();
+  const cleared = await (await c(`/api/tasks/${dated.id}`, 'PATCH', { due: null })).json();
+  assert.equal(cleared.due, null);
+
+  // 끝낸 날을 모르는 건은 보관 대상이 아니다 — 기준 없이 치우지 않는다.
+  // 시드에도 완료분이 있으므로 절대 건수가 아니라 «늘지 않는다»를 본다.
+  const arch = async () => (await (await c('/api/archivable?before=2030-01-01')).json()).count;
+  const beforeCnt = await arch();
+  await c(`/api/tasks/${someday.id}`, 'PATCH', { status: '완료' });
+  db.prepare('UPDATE tasks SET done_at = NULL WHERE id = ?').run(someday.id); // 구버전 행 흉내
+  assert.equal(await arch(), beforeCnt, '마감도 완료 시각도 없는 건은 보관 대상에 들어가지 않는다');
+});
+
+test('대기 중 — 마감이 지나도 지연이 아니고, 완료와 겸할 수 없다', async (t) => {
+  const db = openDb(':memory:');
+  const srv = createApp(db).listen(0);
+  t.after(() => srv.close());
+  const b = `http://localhost:${srv.address().port}`;
+  const c = (p, method = 'GET', body) =>
+    fetch(b + p, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
+  const meta = async () => (await c('/api/meta')).json();
+
+  // 기본 진행상황에 대기 중이 들어 있고 waiting 플래그가 함께 내려온다
+  const m0 = await meta();
+  const wait = m0.statuses.find((o) => o.waiting);
+  assert.equal(wait.name, '대기 중');
+  assert.equal(wait.done, 0);
+  assert.equal(m0.statuses.filter((o) => o.done)[0].waiting, 0, '완료 상태는 대기가 아니다');
+
+  // 완료와 대기는 겸할 수 없다 — 끝난 일이 «남의 차례»일 수는 없다
+  assert.equal((await c(`/api/options/${wait.id}`, 'PATCH', { done: true })).status, 400);
+  const doneOpt = m0.statuses.find((o) => o.done);
+  assert.equal((await c(`/api/options/${doneOpt.id}`, 'PATCH', { waiting: true })).status, 400);
+  assert.equal((await c('/api/options/status', 'POST', { name: '둘다', done: true, waiting: true })).status, 400);
+
+  // 대기는 하나도 없어도 된다 — done과 달리 기준이 사라져도 잃는 기능이 없다
+  assert.equal((await c(`/api/options/${wait.id}`, 'PATCH', { waiting: false })).status, 200);
+  assert.equal((await meta()).statuses.filter((o) => o.waiting).length, 0);
+  await c(`/api/options/${wait.id}`, 'PATCH', { waiting: true });
+
+  // 마감이 한참 지난 대기 건은 지연 목록(due_before)에는 걸려도 waiting 플래그로 구분된다
+  const stuck = await (await c('/api/tasks', 'POST', {
+    title: '심준 대리 회신 대기', status: '대기 중', category: '기타', start: '2020-01-01', due: '2020-02-01',
+  })).json();
+  assert.equal(stuck.status, '대기 중');
+  const statuses = (await meta()).statuses;
+  assert.ok(statuses.find((o) => o.name === '대기 중').waiting, 'waiting 플래그가 유지된다');
+
+  // 이름을 바꿔도 플래그는 그 항목에 붙어 있다 — done과 같은 이유로 이름에 기대지 않는다
+  await c(`/api/options/${wait.id}`, 'PATCH', { name: '회신 대기' });
+  assert.ok((await meta()).statuses.find((o) => o.name === '회신 대기').waiting);
+  assert.equal((await (await c('/api/tasks')).json()).find((x) => x.id === stuck.id).status, '회신 대기',
+    '태스크 참조도 따라온다');
+});
+
 test('반복 태스크 — 완료 시 다음 회차 생성', async (t) => {
   const db = openDb(':memory:');
   const srv = createApp(db).listen(0);
@@ -65,7 +159,7 @@ test('반복 태스크 — 완료 시 다음 회차 생성', async (t) => {
   const iso = (d) => d.toISOString().slice(0, 10);
   const plus = (n) => iso(new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate() + n)));
 
-  const base = { title: '뉴스레터 발행', type: '운영', status: '시작 전', category: '기타', priority: 'Medium' };
+  const base = { title: '뉴스레터 발행', status: '시작 전', category: '기타' };
 
   // repeat_days는 생성 시 선택 항목 — 없으면 0
   const plain = await (await c('/api/tasks', 'POST', { ...base, start: plus(0), due: plus(3) })).json();
@@ -91,7 +185,7 @@ test('반복 태스크 — 완료 시 다음 회차 생성', async (t) => {
   assert.deepEqual(next.subtasks.map((s) => [s.title, s.done]), [['원고 취합', 0]], '체크리스트는 복사하되 전부 해제');
 
   // 이미 완료된 건을 또 고쳐도 회차가 늘지 않는다
-  await c(`/api/tasks/${rep.id}`, 'PATCH', { priority: 'High' });
+  await c(`/api/tasks/${rep.id}`, 'PATCH', { memo: '재저장' });
   assert.equal((await (await c('/api/tasks')).json()).filter((x) => x.title === '격주 뉴스레터').length, 2);
 
   // 한참 지난 반복을 뒤늦게 완료해도 과거 날짜가 나오지 않는다
@@ -119,38 +213,42 @@ test('설정 항목 — 추가·이름변경·삭제·순서, done 플래그 보
 
   // 기본값이 심어져 있고 색상·done이 함께 온다
   const m0 = await meta();
-  assert.deepEqual(m0.statuses.map((o) => o.name), ['시작 전', '진행 중', '완료']);
-  assert.deepEqual(m0.statuses.map((o) => o.done), [0, 0, 1]);
-  assert.equal(m0.types.find((o) => o.name === '개발').color, '#2F6FED');
+  assert.deepEqual(m0.statuses.map((o) => o.name), ['시작 전', '진행 중', '대기 중', '완료']);
+  assert.deepEqual(m0.statuses.map((o) => o.done), [0, 0, 0, 1]);
+  assert.deepEqual(m0.statuses.map((o) => o.waiting), [0, 0, 1, 0]);
+  assert.equal(m0.categories.find((o) => o.name === '기타').color, '#6B7280');
+  // 업무유형·우선순위는 폐기했다 — meta에도 없고 kind로도 받지 않는다
+  assert.ok(!('types' in m0) && !('priorities' in m0), 'meta는 진행상황·업무분류만 내려준다');
+  assert.equal((await c('/api/options/type', 'POST', { name: 'x' })).status, 404, '폐기된 kind는 404');
+  assert.equal((await c('/api/options/priority', 'POST', { name: 'x' })).status, 404);
 
   // 추가
-  const added = await (await c('/api/options/type', 'POST', { name: '데브옵스', color: '#123456' })).json();
+  const added = await (await c('/api/options/category', 'POST', { name: '데브옵스', color: '#123456' })).json();
   assert.ok(added.some((o) => o.name === '데브옵스'));
-  assert.equal((await c('/api/options/type', 'POST', { name: '데브옵스' })).status, 400, '중복 거부');
-  assert.equal((await c('/api/options/type', 'POST', { name: '  ' })).status, 400, '빈 이름 거부');
-  assert.equal((await c('/api/options/type', 'POST', { name: 'x', color: 'red' })).status, 400, '색상 형식 거부');
+  assert.equal((await c('/api/options/category', 'POST', { name: '데브옵스' })).status, 400, '중복 거부');
+  assert.equal((await c('/api/options/category', 'POST', { name: '  ' })).status, 400, '빈 이름 거부');
+  assert.equal((await c('/api/options/category', 'POST', { name: 'x', color: 'red' })).status, 400, '색상 형식 거부');
   assert.equal((await c('/api/options/nope', 'POST', { name: 'x' })).status, 404);
 
   // 이름을 바꾸면 그 값을 쓰던 태스크도 함께 바뀐다
-  const devops = (await meta()).types.find((o) => o.name === '데브옵스');
+  const devops = (await meta()).categories.find((o) => o.name === '데브옵스');
   const task = await (await c('/api/tasks', 'POST', {
-    title: '파이프라인', type: '데브옵스', status: '시작 전', category: '기타',
-    priority: 'Medium', start: '2026-07-01', due: '2026-07-02',
+    title: '파이프라인', status: '시작 전', category: '데브옵스',
+    start: '2026-07-01', due: '2026-07-02',
   })).json();
   await c(`/api/options/${devops.id}`, 'PATCH', { name: 'DevOps' });
-  assert.equal((await (await c('/api/tasks')).json()).find((x) => x.id === task.id).type, 'DevOps', '태스크 참조가 따라온다');
+  assert.equal((await (await c('/api/tasks')).json()).find((x) => x.id === task.id).category, 'DevOps', '태스크 참조가 따라온다');
 
-  // 사라진 이름으로는 더 이상 만들 수 없다
+  // 진행상황은 화이트리스트다 — 사라진 이름으로는 만들 수 없다
   assert.equal((await c('/api/tasks', 'POST', {
-    title: 'x', type: '데브옵스', status: '시작 전', category: '기타',
-    priority: 'Medium', start: '2026-07-01', due: '2026-07-02',
+    title: 'x', status: '없는상태', category: '기타', start: '2026-07-01', due: '2026-07-02',
   })).status, 400);
 
   // 순서 변경
-  const ids = (await meta()).types.map((o) => o.id);
-  const flipped = await (await c('/api/options/type/order', 'PATCH', { ids: [...ids].reverse() })).json();
+  const ids = (await meta()).categories.map((o) => o.id);
+  const flipped = await (await c('/api/options/category/order', 'PATCH', { ids: [...ids].reverse() })).json();
   assert.deepEqual(flipped.map((o) => o.id), [...ids].reverse());
-  assert.equal((await c('/api/options/type/order', 'PATCH', { ids: ids.slice(0, 2) })).status, 400, '부분 목록 거부');
+  assert.equal((await c('/api/options/category/order', 'PATCH', { ids: ids.slice(0, 2) })).status, 400, '부분 목록 거부');
 
   // 진행상황 순서 = 보드 열 순서. 보드에서 열 머리를 끌면 같은 요청이 나간다.
   const sIds = (await meta()).statuses.map((o) => o.id);
@@ -158,17 +256,10 @@ test('설정 항목 — 추가·이름변경·삭제·순서, done 플래그 보
   assert.deepEqual(sFlipped.map((o) => o.id), [...sIds].reverse());
   await c('/api/options/status/order', 'PATCH', { ids: sIds });
 
-  // 분류도 같은 방식으로 이름변경·순서변경이 된다
-  const catIds = (await meta()).categories.map((o) => o.id);
-  const catFlipped = await (await c('/api/options/category/order', 'PATCH', { ids: [...catIds].reverse() })).json();
-  assert.deepEqual(catFlipped.map((o) => o.id), [...catIds].reverse());
-  await c(`/api/options/${catIds[0]}`, 'PATCH', { name: '이름바꾼분류' });
-  assert.ok((await (await c('/api/tasks')).json()).some((x) => x.category === '이름바꾼분류'), '태스크 분류도 따라온다');
-
   // 삭제하면 쓰던 태스크는 남은 첫 항목으로 이관
-  const devopsId = (await meta()).types.find((o) => o.name === 'DevOps').id;
+  const devopsId = (await meta()).categories.find((o) => o.name === 'DevOps').id;
   const del = await (await c(`/api/options/${devopsId}`, 'DELETE')).json();
-  assert.equal((await (await c('/api/tasks')).json()).find((x) => x.id === task.id).type, del.movedTo);
+  assert.equal((await (await c('/api/tasks')).json()).find((x) => x.id === task.id).category, del.movedTo);
   assert.equal(del.moved, 1);
 
   // done 플래그 보호 — 마지막 완료 상태는 해제도 삭제도 못 한다
@@ -183,20 +274,18 @@ test('설정 항목 — 추가·이름변경·삭제·순서, done 플래그 보
 
   // '완료'가 더 이상 끝난 상태가 아니므로 보관 대상에서도 빠진다
   await c('/api/tasks', 'POST', {
-    title: '옛날 완료', type: '개발', status: '완료', category: '기타',
-    priority: 'Medium', start: '2025-01-01', due: '2025-01-02',
+    title: '옛날 완료', status: '완료', category: '기타', start: '2025-01-01', due: '2025-01-02',
   });
   assert.equal((await (await c('/api/archivable?before=2026-01-01')).json()).count, 0,
     'done 플래그가 빠진 상태는 완료로 세지 않는다');
   await c('/api/tasks', 'POST', {
-    title: '취소된 건', type: '개발', status: '취소', category: '기타',
-    priority: 'Medium', start: '2025-01-01', due: '2025-01-02',
+    title: '취소된 건', status: '취소', category: '기타', start: '2025-01-01', due: '2025-01-02',
   });
   assert.equal((await (await c('/api/archivable?before=2026-01-01')).json()).count, 1);
 
   // 마지막 항목은 지울 수 없다
-  for (const o of (await meta()).priorities.slice(1)) await c(`/api/options/${o.id}`, 'DELETE');
-  const last = (await meta()).priorities;
+  for (const o of (await meta()).categories.slice(1)) await c(`/api/options/${o.id}`, 'DELETE');
+  const last = (await meta()).categories;
   assert.equal(last.length, 1);
   assert.equal((await c(`/api/options/${last[0].id}`, 'DELETE')).status, 400);
 });
@@ -209,7 +298,7 @@ test('보관 — 오래된 완료분만 빠지고 되돌릴 수 있다', async (
   const c = (p, method = 'GET', body) =>
     fetch(b + p, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
 
-  const base = { type: '운영', category: '기타', priority: 'Medium' };
+  const base = { category: '기타' };
   const mk = async (title, status, due) =>
     (await (await c('/api/tasks', 'POST', { ...base, title, status, start: due, due })).json());
 
@@ -265,7 +354,7 @@ test('완료 시각(done_at) — 전환 순간에만 찍히고 보관 기준이 
   const TODAY = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
   const task = await (await c('/api/tasks', 'POST', {
-    title: '완료시각', type: '운영', status: '시작 전', category: '기타', priority: 'Medium',
+    title: '완료시각', status: '시작 전', category: '기타',
     start: '2025-03-01', due: '2025-03-05',
   })).json();
   assert.equal(task.done_at, null, '미완료는 비어 있다');
@@ -353,7 +442,7 @@ test('상하위 태스크 — 1단계 제한 + 삭제 시 연결만 해제', asy
   const c = (p, method = 'GET', body) =>
     fetch(b + p, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
 
-  const base = { type: '개발', status: '시작 전', category: '기타', priority: 'Medium', start: '2026-08-01', due: '2026-08-10' };
+  const base = { status: '시작 전', category: '기타', start: '2026-08-01', due: '2026-08-10' };
   const mk = async (title, extra = {}) => (await (await c('/api/tasks', 'POST', { ...base, title, ...extra })).json());
 
   const parent = await mk('상위');
@@ -443,8 +532,8 @@ test('메모 — CRUD + 검증 + 태스크 연동 + 보관', async (t) => {
 
   // 태스크 연결 + 태스크를 지워도 메모는 남는다 (SET NULL)
   const task = await (await c('/api/tasks', 'POST', {
-    title: '연결 태스크', type: '개발', status: '시작 전', category: '기타',
-    priority: 'Medium', start: '2026-08-01', due: '2026-08-10',
+    title: '연결 태스크', status: '시작 전', category: '기타',
+    start: '2026-08-01', due: '2026-08-10',
   })).json();
   await c(`/api/notes/${note.id}`, 'PATCH', { task_id: task.id });
   assert.deepEqual((await (await c(`/api/notes?task_id=${task.id}`)).json()).map((n) => n.id), [note.id], 'task_id 필터');

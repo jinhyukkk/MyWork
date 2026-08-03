@@ -1,5 +1,5 @@
 // 데이터 조작 + 검증. REST(server.js)와 MCP(mcp.js)가 이 한 곳을 공유한다.
-// 업무유형·진행상황·우선순위는 상수가 아니라 options 테이블에서 읽는다.
+// 진행상황·업무분류는 상수가 아니라 options 테이블에서 읽는다.
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY = 86400000;
@@ -24,17 +24,25 @@ const localToday = () => {
 /** 완료 시각. created_at과 같은 형식('YYYY-MM-DD HH:MM:SS')을 쓰려고 SQLite에 맡긴다. */
 const stamp = (db) => db.prepare("SELECT datetime('now','localtime') t").get().t;
 
-// ── 설정 항목(업무유형·진행상황·우선순위) ──────────────
-export const KINDS = ['type', 'status', 'priority', 'category'];
-const KIND_LABEL = { type: '업무유형', status: '진행상황', priority: '우선순위', category: '업무분류' };
+// ── 설정 항목(진행상황·업무분류) ───────────────────────
+// 업무유형·우선순위는 폐기했다 — 실사용에서 값이 한쪽에 쏠려 필터·정렬에 정보를 주지 못했다.
+export const KINDS = ['status', 'category'];
+const KIND_LABEL = { status: '진행상황', category: '업무분류' };
 
 export const listOptions = (db, kind) =>
-  db.prepare('SELECT id, name, color, sort, done FROM options WHERE kind = ? ORDER BY sort, id').all(kind);
+  db.prepare('SELECT id, name, color, sort, done, waiting FROM options WHERE kind = ? ORDER BY sort, id').all(kind);
 const names = (db, kind) => listOptions(db, kind).map((o) => o.name);
 
 /** done=1로 표시된 진행상황들. '완료'라는 이름 대신 이 집합이 '끝남'의 정의다. */
 export const doneStatuses = (db) =>
   new Set(db.prepare("SELECT name FROM options WHERE kind = 'status' AND done = 1").all().map((r) => r.name));
+
+/**
+ * waiting=1로 표시된 진행상황들 — «공이 남에게 있는» 상태.
+ * done과 달리 하나도 없어도 된다. 없으면 그냥 이 구분을 안 쓰는 것뿐이고 잃는 기능이 없다.
+ */
+export const waitingStatuses = (db) =>
+  new Set(db.prepare("SELECT name FROM options WHERE kind = 'status' AND waiting = 1").all().map((r) => r.name));
 
 /** 새로 만드는 태스크의 기본 상태 — 끝나지 않은 것 중 첫 번째. */
 export function firstOpenStatus(db) {
@@ -46,20 +54,21 @@ export function firstOpenStatus(db) {
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 const optName = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
-export function addOption(db, kind, { name, color, done } = {}) {
+export function addOption(db, kind, { name, color, done, waiting } = {}) {
   if (!KINDS.includes(kind)) return fail('알 수 없는 설정 종류', 404);
   const clean = optName(name);
   if (!clean) return fail(`${KIND_LABEL[kind]} 이름이 비었습니다`);
   if (names(db, kind).includes(clean)) return fail(`이미 있는 ${KIND_LABEL[kind]}입니다`);
   if (color !== undefined && !COLOR.test(color)) return fail('색상은 #RRGGBB 형식이어야 합니다');
+  if (done && waiting) return fail('완료와 대기는 함께 표시할 수 없습니다');
   const { next } = db.prepare('SELECT COALESCE(MAX(sort), -1) + 1 next FROM options WHERE kind = ?').get(kind);
-  db.prepare('INSERT INTO options (kind, name, color, sort, done) VALUES (?,?,?,?,?)')
-    .run(kind, clean, color ?? '#6B7280', next, kind === 'status' && done ? 1 : 0);
+  db.prepare('INSERT INTO options (kind, name, color, sort, done, waiting) VALUES (?,?,?,?,?,?)')
+    .run(kind, clean, color ?? '#6B7280', next, kind === 'status' && done ? 1 : 0, kind === 'status' && waiting ? 1 : 0);
   return ok(listOptions(db, kind));
 }
 
 /** 이름을 바꾸면 그 값을 쓰던 태스크도 함께 옮긴다 — 참조가 끊기면 안 된다. */
-export function updateOption(db, id, { name, color, done } = {}) {
+export function updateOption(db, id, { name, color, done, waiting } = {}) {
   const cur = db.prepare('SELECT * FROM options WHERE id = ?').get(id);
   if (!cur) return fail('설정 항목 없음', 404);
   const patch = {};
@@ -76,9 +85,14 @@ export function updateOption(db, id, { name, color, done } = {}) {
   }
   if (done !== undefined && cur.kind === 'status') {
     const v = done ? 1 : 0;
-    // 완료로 표시된 상태가 하나도 없으면 진척률·보관·반복이 기준을 잃는다
+    // 완료로 표시된 상태가 하나도 없으면 보관·반복·완료 숨김이 기준을 잃는다
     if (!v && cur.done && doneStatuses(db).size <= 1) return fail('완료로 표시된 진행상황이 최소 하나는 있어야 합니다');
     patch.done = v;
+  }
+  if (waiting !== undefined && cur.kind === 'status') patch.waiting = waiting ? 1 : 0;
+  // 끝난 일이 «남의 차례»일 수는 없다. 한쪽만 바꿔도 합쳐진 결과로 판정한다.
+  if ((patch.done ?? cur.done) && (patch.waiting ?? cur.waiting)) {
+    return fail('완료와 대기는 함께 표시할 수 없습니다');
   }
 
   const keys = Object.keys(patch);
@@ -124,20 +138,20 @@ export function reorderOptions(db, kind, ids) {
   return ok(listOptions(db, kind));
 }
 
+// 검증 실패는 undefined로 알린다 — due는 null이 «마감 없음»이라는 정상 값이라서,
+// null을 실패 신호로 쓰면 «마감 지움»과 «잘못된 날짜»를 구분할 수 없다.
 const FIELDS = {
-  title: (v) => (typeof v === 'string' && v.trim() ? v.trim() : null),
-  type: (v, db) => (names(db, 'type').includes(v) ? v : null),
-  status: (v, db) => (names(db, 'status').includes(v) ? v : null),
-  priority: (v, db) => (names(db, 'priority').includes(v) ? v : null),
-  category: (v) => (typeof v === 'string' && v.trim() ? v.trim() : null),
-  start: (v) => (isDate(v) ? v : null),
-  due: (v) => (isDate(v) ? v : null),
-  memo: (v) => (typeof v === 'string' ? v : null),
-  repeat_days: (v) => (Number.isInteger(v) && v >= 0 && v <= 365 ? v : null),
-  archived: (v) => (typeof v === 'boolean' ? Number(v) : v === 0 || v === 1 ? v : null),
+  title: (v) => (typeof v === 'string' && v.trim() ? v.trim() : undefined),
+  status: (v, db) => (names(db, 'status').includes(v) ? v : undefined),
+  category: (v) => (typeof v === 'string' && v.trim() ? v.trim() : undefined),
+  start: (v) => (isDate(v) ? v : undefined),
+  due: (v) => (v === null || v === '' ? null : isDate(v) ? v : undefined),
+  memo: (v) => (typeof v === 'string' ? v : undefined),
+  repeat_days: (v) => (Number.isInteger(v) && v >= 0 && v <= 365 ? v : undefined),
+  archived: (v) => (typeof v === 'boolean' ? Number(v) : v === 0 || v === 1 ? v : undefined),
 };
-// 생성 시 없어도 되는 필드
-const OPTIONAL = new Set(['memo', 'repeat_days', 'archived']);
+// 생성 시 없어도 되는 필드. due는 없으면 «마감 없음»이다.
+const OPTIONAL = new Set(['memo', 'repeat_days', 'archived', 'due']);
 
 /**
  * 상위 태스크 검증. Jira와 같이 1단계까지만 허용한다 —
@@ -169,7 +183,7 @@ function pick(db, body, required) {
       continue;
     }
     const v = check(body[key], db);
-    if (v === null) return fail(`${key} 값이 올바르지 않습니다`);
+    if (v === undefined) return fail(`${key} 값이 올바르지 않습니다`);
     out[key] = v;
   }
   return ok(out);
@@ -190,7 +204,8 @@ export const getTask = (db, id) => {
  */
 export function listTasks(db, filter = {}) {
   const want = filter.archived === true ? 1 : 0;
-  const tasks = db.prepare('SELECT * FROM tasks WHERE archived = ? ORDER BY due, id').all(want);
+  // 마감 없음은 맨 뒤 — «언젠가»가 오늘 할 일보다 앞에 오면 안 된다
+  const tasks = db.prepare('SELECT * FROM tasks WHERE archived = ? ORDER BY due IS NULL, due, id').all(want);
   // 태스크당 조회 대신 한 번에 읽어 묶는다 (N+1 회피)
   const byTask = new Map();
   for (const s of db.prepare('SELECT * FROM subtasks ORDER BY task_id, sort, id').all()) {
@@ -202,9 +217,7 @@ export function listTasks(db, filter = {}) {
     .filter((t) =>
       (!filter.status || t.status === filter.status) &&
       (!filter.category || t.category === filter.category) &&
-      (!filter.type || t.type === filter.type) &&
-      (!filter.priority || t.priority === filter.priority) &&
-      (!filter.due_before || t.due <= filter.due_before) &&
+      (!filter.due_before || (t.due && t.due <= filter.due_before)) &&
       (!q || t.title.toLowerCase().includes(q) || (t.memo || '').toLowerCase().includes(q)))
     .map((t) => ({ ...t, subtasks: byTask.get(t.id) ?? [] }));
 }
@@ -213,12 +226,15 @@ export function listTasks(db, filter = {}) {
 export function createTask(db, body) {
   const { data, error, status } = pick(db, body, true);
   if (error) return fail(error, status);
-  if (data.start > data.due) return fail('시작일이 마감일보다 늦습니다');
+  const due = data.due ?? null;
+  if (due && data.start > due) return fail('시작일이 마감일보다 늦습니다');
+  // 반복은 «직전 마감 + 주기»로 다음 회차를 잡는다 — 기준이 없으면 주기를 더할 수 없다
+  if (!due && data.repeat_days > 0) return fail('반복 태스크는 마감일이 있어야 합니다');
   const parent = pickParent(db, body, null);
   if (parent.error) return fail(parent.error);
   const { lastInsertRowid } = db
-    .prepare('INSERT INTO tasks (title, type, status, category, priority, start, due, memo, repeat_days, parent_id) VALUES (?,?,?,?,?,?,?,?,?,?)')
-    .run(data.title, data.type, data.status, data.category, data.priority, data.start, data.due, data.memo ?? '', data.repeat_days ?? 0, parent.value ?? null);
+    .prepare('INSERT INTO tasks (title, status, category, start, due, memo, repeat_days, parent_id) VALUES (?,?,?,?,?,?,?,?)')
+    .run(data.title, data.status, data.category, data.start, due, data.memo ?? '', data.repeat_days ?? 0, parent.value ?? null);
   return ok(getTask(db, lastInsertRowid));
 }
 
@@ -228,15 +244,16 @@ export function createTask(db, body) {
  * 시작일~마감일 간격과 체크리스트는 템플릿처럼 그대로 이어받는다(체크는 모두 해제).
  */
 function spawnNext(db, task) {
-  if (!(task.repeat_days > 0)) return null;
+  // 마감이 없으면 주기를 더할 기준이 없다. 생성·수정에서 이미 막지만 여기서도 방어한다.
+  if (!(task.repeat_days > 0) || !task.due) return null;
   const gap = (toUTC(task.due) - toUTC(task.start)) / DAY;
   const today = localToday();
   let due = addDays(task.due, task.repeat_days);
   while (due <= today) due = addDays(due, task.repeat_days);
 
   const { lastInsertRowid } = db
-    .prepare('INSERT INTO tasks (title, type, status, category, priority, start, due, memo, repeat_days, parent_id) VALUES (?,?,?,?,?,?,?,?,?,?)')
-    .run(task.title, task.type, firstOpenStatus(db), task.category, task.priority, addDays(due, -gap), due, task.memo, task.repeat_days, task.parent_id);
+    .prepare('INSERT INTO tasks (title, status, category, start, due, memo, repeat_days, parent_id) VALUES (?,?,?,?,?,?,?,?)')
+    .run(task.title, firstOpenStatus(db), task.category, addDays(due, -gap), due, task.memo, task.repeat_days, task.parent_id);
 
   const ins = db.prepare('INSERT INTO subtasks (task_id, title, done, sort) VALUES (?,?,0,?)');
   for (const s of subsOf(db, task.id)) ins.run(lastInsertRowid, s.title, s.sort);
@@ -253,7 +270,8 @@ export function updateTask(db, id, body) {
   if ('value' in parent) data.parent_id = parent.value;
   if (!Object.keys(data).length) return ok(getTask(db, cur.id));
   const merged = { ...cur, ...data };
-  if (merged.start > merged.due) return fail('시작일이 마감일보다 늦습니다');
+  if (merged.due && merged.start > merged.due) return fail('시작일이 마감일보다 늦습니다');
+  if (!merged.due && merged.repeat_days > 0) return fail('반복 태스크는 마감일이 있어야 합니다');
 
   // 완료로 '넘어가는' 순간만 본다 — 완료 시각 기록과 다음 회차 생성이 같은 판정을 쓴다.
   // 이미 완료된 건을 다시 저장해도 시각이 밀리지 않고, 되돌리면 지워진다.
@@ -282,8 +300,10 @@ export function deleteTask(db, id) {
  * before 이전에 끝낸 완료 태스크를 보관한다. 되돌릴 수 있도록 삭제가 아닌 플래그.
  * 기준은 완료 시각(done_at)의 날짜 부분이고, 그게 없는 구버전 행에서만 마감일을 근사치로 쓴다.
  */
+// done_at도 due도 없으면(마감 없이 만들어 끝낸 구버전 행) NULL이라 비교에서 빠진다 —
+// 끝낸 날을 모르는 건을 보관 대상으로 삼으면 기준 없이 치우는 셈이다.
 const ENDED = "COALESCE(substr(done_at, 1, 10), due)";
-/** 위 ENDED의 JS판 — 끝낸 날. done_at이 없는 구버전 완료 행은 마감일이 근사치다. */
+/** 위 ENDED의 JS판 — 끝낸 날. done_at이 없는 구버전 완료 행은 마감일이 근사치, 그것도 없으면 null. */
 export const endedOn = (t) => (t.done_at ? t.done_at.slice(0, 10) : t.due);
 
 export function archiveCompleted(db, before) {

@@ -1,4 +1,4 @@
-// 진척 계산. 브라우저(app.js)와 테스트가 같은 함수를 쓴다.
+// 체크리스트 집계. 브라우저(app.js)와 테스트가 같은 함수를 쓴다.
 
 /** 체크리스트 진행 현황. 항목이 없으면 total 0 → UI에서 숨김. */
 export function checklist(t) {
@@ -8,24 +8,11 @@ export function checklist(t) {
 }
 
 /**
- * 태스크 하나의 진척도 0~1.
- * 끝난 상태면 체크 여부와 무관하게 1. 아니면 체크된 항목만 인정하고,
- * 체크리스트가 없으면 0 — 진행 중이라는 이유로 점수를 주지 않는다(임의의 가중치 금지).
- *
- * '끝남'의 판단은 isDone으로 주입받는다. 진행상황 이름은 사용자가 바꿀 수 있으므로
- * '완료'라는 문자열에 기대지 않는다.
+ * 진척률(taskProgress·weightedPct)은 폐기했다.
+ * 44건에 체크리스트 항목이 3개뿐이라 평균값이 «데이터 없는 계산»이었고,
+ * 요약 뷰가 실제와 무관한 숫자를 자신 있게 띄우는 쪽이 안 띄우는 것보다 나빴다.
+ * 개별 카운트 배지(2/5)는 정보가 있으므로 아래 두 함수로 남는다.
  */
-export function taskProgress(t, isDone) {
-  if (isDone(t.status)) return 1;
-  const c = checklist(t);
-  return c.total ? c.done / c.total : 0;
-}
-
-/** 여러 태스크의 평균 진척률(%). 빈 목록은 0. */
-export function weightedPct(tasks, isDone) {
-  if (!tasks.length) return 0;
-  return Math.round((tasks.reduce((sum, t) => sum + taskProgress(t, isDone), 0) / tasks.length) * 100);
-}
 
 /** 태스크 묶음의 체크리스트 항목 합계. */
 export function checklistTotals(tasks) {

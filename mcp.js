@@ -11,10 +11,10 @@ const db = openDb(process.env.MYWORK_DB_PATH);
 
 // 도구 스키마의 enum은 서버 기동 시점의 설정을 굳힌다.
 // 설정을 바꾸면 MCP 서버를 재시작해야 새 값이 반영된다(도구 목록은 한 번만 전송되므로).
-const TYPES = store.listOptions(db, 'type').map((o) => o.name);
 const STATUSES = store.listOptions(db, 'status').map((o) => o.name);
-const PRIORITIES = store.listOptions(db, 'priority').map((o) => o.name);
 const isDone = (s) => store.doneStatuses(db).has(s);
+/** «공이 남에게 있는» 상태 — 마감이 지나도 지연으로 세지 않는다. */
+const isWaiting = (s) => store.waitingStatuses(db).has(s);
 
 const DAY = 86400000;
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -46,8 +46,6 @@ const TOOLS = [
       type: 'object',
       properties: {
         status: enumOf(STATUSES, '진행상황'),
-        type: enumOf(TYPES, '업무유형'),
-        priority: enumOf(PRIORITIES, '우선순위'),
         category: str('업무분류명 (정확히 일치)'),
         q: str('제목·메모 부분 일치 검색어'),
         due_before: str('이 날짜(YYYY-MM-DD) 이하 마감분만'),
@@ -58,17 +56,15 @@ const TOOLS = [
   },
   {
     name: 'create_task',
-    description: '새 태스크를 만든다. title만 필수이고 나머지는 기본값이 채워진다(오늘 시작·7일 뒤 마감).',
+    description: '새 태스크를 만든다. title만 필수. due를 주지 않으면 «마감 없음»이 되고 브리핑의 someday에 담긴다.',
     inputSchema: {
       type: 'object',
       properties: {
         title: str('제목'),
-        type: enumOf(TYPES, '업무유형 (기본 개발)'),
         status: enumOf(STATUSES, '진행상황 (기본 시작 전)'),
-        priority: enumOf(PRIORITIES, '우선순위 (기본 Medium)'),
         category: str('업무분류 (기본 첫 번째 분류). 없는 분류면 새로 만든다'),
         start: str('시작일 YYYY-MM-DD (기본 오늘)'),
-        due: str('마감일 YYYY-MM-DD (기본 오늘+7일)'),
+        due: { type: ['string', 'null'], description: '마감일 YYYY-MM-DD. 생략하거나 null이면 마감 없음(«언젠가»)' },
         memo: str('설명·메모'),
         repeat_days: REPEAT,
         parent_id: PARENT,
@@ -83,9 +79,10 @@ const TOOLS = [
       type: 'object',
       properties: {
         id: ID,
-        title: str('제목'), type: enumOf(TYPES, '업무유형'), status: enumOf(STATUSES, '진행상황'),
-        priority: enumOf(PRIORITIES, '우선순위'), category: str('업무분류'),
-        start: str('시작일 YYYY-MM-DD'), due: str('마감일 YYYY-MM-DD'), memo: str('설명·메모'),
+        title: str('제목'), status: enumOf(STATUSES, '진행상황'), category: str('업무분류'),
+        start: str('시작일 YYYY-MM-DD'),
+        due: { type: ['string', 'null'], description: '마감일 YYYY-MM-DD. null이면 마감 해제' },
+        memo: str('설명·메모'),
         repeat_days: REPEAT, parent_id: PARENT,
       },
       required: ['id'],
@@ -164,7 +161,7 @@ const TOOLS = [
   },
   {
     name: 'today_brief',
-    description: '오늘 기준 업무 브리핑. 미완료 태스크를 지연 / 오늘 마감 / 예정으로 나눠서 한 번에 준다. "오늘 뭐 해야 하지" 류의 질문에 쓴다.',
+    description: '오늘 기준 업무 브리핑. 미완료 태스크를 지연 / 오늘 마감 / 예정 / 언젠가(마감 없음) / 대기(공이 남에게)로 나눠서 한 번에 준다. "오늘 뭐 해야 하지" 류의 질문에 쓴다. 대기 건은 지연에 세지 않는다.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -234,7 +231,7 @@ const HANDLERS = {
     if (a.overdue) { filter.due_before = todayIso(); delete filter.overdue; }
     let tasks = store.listTasks(db, filter);
     // overdue는 '마감 지남 + 미완료' — due_before만으로는 완료분이 섞인다
-    if (a.overdue) tasks = tasks.filter((t) => !isDone(t.status) && t.due < todayIso());
+    if (a.overdue) tasks = tasks.filter((t) => !isDone(t.status) && t.due && t.due < todayIso());
     return text({ count: tasks.length, tasks });
   },
 
@@ -248,12 +245,10 @@ const HANDLERS = {
     }
     return out(store.createTask(db, {
       title: a.title,
-      type: a.type ?? TYPES[0],
       status: a.status ?? store.firstOpenStatus(db),
-      priority: a.priority ?? (PRIORITIES[1] ?? PRIORITIES[0]),
       category,
       start: a.start ?? todayIso(),
-      due: a.due ?? iso(new Date(Date.now() + 7 * DAY)),
+      due: a.due ?? null,     // 기본 «마감 없음» — 자동으로 붙던 +7일이 가짜 마감의 근원이었다
       memo: a.memo ?? '',
       ...(a.parent_id === undefined ? {} : { parent_id: a.parent_id }),
     }));
@@ -308,13 +303,14 @@ const HANDLERS = {
 
     // 보관분도 함께 본다 — 끝낸 일을 빠뜨리는 게 회고 도구의 최악의 실패다
     const all = [...store.listTasks(db, { category }), ...store.listTasks(db, { category, archived: true })];
-    const inRange = (d) => d >= from && d <= to;
+    // 끝낸 날도 마감일도 없으면(마감 없이 만들어 끝낸 건) 구간을 판정할 수 없어 빠진다
+    const inRange = (d) => !!d && d >= from && d <= to;
 
     const completed = all
       .filter((t) => isDone(t.status) && inRange(store.endedOn(t)))
       .sort((a, b) => store.endedOn(a).localeCompare(store.endedOn(b)))
       .map((t) => ({
-        id: t.id, title: t.title, category: t.category, type: t.type, done: store.endedOn(t), due: t.due,
+        id: t.id, title: t.title, category: t.category, done: store.endedOn(t), due: t.due,
         ...(t.repeat_days ? { repeat_days: t.repeat_days } : {}),
         ...(t.archived ? { archived: true } : {}),
         // done_at이 없어 마감일로 갈음한 건 — 실제로 끝낸 날이 아닐 수 있다
@@ -325,7 +321,11 @@ const HANDLERS = {
     const carried_over = all
       .filter((t) => !isDone(t.status) && !t.archived && inRange(t.due))
       .sort((a, b) => a.due.localeCompare(b.due))
-      .map((t) => ({ id: t.id, title: t.title, category: t.category, status: t.status, due: t.due, late_days: daysBetween(t.due, today) }));
+      .map((t) => ({
+        id: t.id, title: t.title, category: t.category, status: t.status, due: t.due,
+        late_days: daysBetween(t.due, today),
+        ...(isWaiting(t.status) ? { waiting: true } : {}),   // 내가 밀린 게 아니라 남의 회신을 기다리는 건
+      }));
 
     const tally = (rows) => rows.reduce((acc, r) => ({ ...acc, [r.category]: (acc[r.category] ?? 0) + 1 }), {});
     return text({
@@ -334,7 +334,6 @@ const HANDLERS = {
         completed: completed.length,
         carried_over: carried_over.length,
         by_category: tally(completed),
-        by_type: completed.reduce((acc, r) => ({ ...acc, [r.type]: (acc[r.type] ?? 0) + 1 }), {}),
         estimated: completed.filter((r) => r.estimated).length,
       },
       completed, carried_over,
@@ -349,16 +348,21 @@ const HANDLERS = {
     const slim = (t) => {
       const done = t.subtasks.filter((s) => s.done).length;
       return {
-        id: t.id, title: t.title, category: t.category, priority: t.priority, status: t.status, due: t.due,
+        id: t.id, title: t.title, category: t.category, status: t.status, due: t.due,
         ...(t.subtasks.length ? { checklist: `${done}/${t.subtasks.length}` } : {}),
       };
     };
     const byDue = (a, b) => a.due.localeCompare(b.due);
-    const overdue = open.filter((t) => t.due < today).sort(byDue)
+    // 대기(공이 남에게)는 날짜 버킷에서 통째로 빠진다 — 마감이 지나도 내 차례가 아니다
+    const waiting = open.filter((t) => isWaiting(t.status)).map(slim);
+    const mine = open.filter((t) => !isWaiting(t.status));
+    const overdue = mine.filter((t) => t.due && t.due < today).sort(byDue)
       .map((t) => ({ ...slim(t), late_days: daysBetween(t.due, today) }));
-    const due_today = open.filter((t) => t.due === today).sort(byDue).map(slim);
-    const upcoming = open.filter((t) => t.due > today && t.due <= limit).sort(byDue)
+    const due_today = mine.filter((t) => t.due === today).sort(byDue).map(slim);
+    const upcoming = mine.filter((t) => t.due && t.due > today && t.due <= limit).sort(byDue)
       .map((t) => ({ ...slim(t), d_day: daysBetween(today, t.due) }));
+    // 마감 없는 건 — 어느 날짜 버킷에도 속하지 않는다. 지연으로 세지 않는 게 이 축의 존재 이유다.
+    const someday = mine.filter((t) => !t.due).map(slim);
 
     return text({
       today,
@@ -367,10 +371,12 @@ const HANDLERS = {
         overdue: overdue.length,
         due_today: due_today.length,
         upcoming: upcoming.length,
+        someday: someday.length,
+        waiting: waiting.length,
         in_progress: open.filter((t) => t.status === '진행 중').length,
-        later: open.length - overdue.length - due_today.length - upcoming.length,
+        later: mine.length - overdue.length - due_today.length - upcoming.length - someday.length,
       },
-      overdue, due_today, upcoming,
+      overdue, due_today, upcoming, someday, waiting,
     });
   },
 

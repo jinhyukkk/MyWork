@@ -1,24 +1,18 @@
 // MyWork 프론트 — 상태 변경 시 전체 재렌더. 이벤트는 위임으로 처리.
-import { checklist, weightedPct, checklistTotals } from './progress.js';
+import { checklist, checklistTotals } from './progress.js';
 
 const DAY = 86400000;
 const VIEWS = { summary: '요약', list: '목록', board: '보드', calendar: '캘린더', timeline: '타임라인', notes: '메모' };
-const KIND_LABEL = { type: '업무유형', status: '진행상황', priority: '우선순위', category: '업무분류' };
-const META_KEY = { type: 'types', status: 'statuses', priority: 'priorities', category: 'categories' };
+const KIND_LABEL = { status: '진행상황', category: '업무분류' };
+const META_KEY = { status: 'statuses', category: 'categories' };
 
 // 색상은 전부 설정(options)에서 온다. 배경은 같은 색의 10% 투명도 — 색을 두 번 고르지 않도록.
-const TYPE_COLOR = (t) => S.opt.type.get(t)?.color ?? '#6B7280';
-const TYPE_BG = (t) => `${TYPE_COLOR(t)}1A`;
 const STATUS_COLOR = (s) => S.opt.status.get(s)?.color ?? '#6B7280';
 const STATUS_BG = (s) => `${STATUS_COLOR(s)}1A`;
 const CAT_COLOR = (c) => S.opt.category.get(c)?.color ?? '#6B7280';
-const PR_COLOR = (p) => S.opt.priority.get(p)?.color ?? '#6B7280';
-const PR_RANK = (p) => S.opt.priority.get(p)?.sort ?? 99;
 const isDone = (s) => S.doneSet.has(s);
-// 우선순위는 «가장 높은 것»만 화면에 드러낸다. 이름('High')이 아니라 설정 순서의 첫 항목이 기준 —
-// done 플래그와 같은 이유로, 이름을 바꾸거나 등급을 늘려도 동작이 유지된다.
-const isTop = (p) => p === S.priorities[0];
-const topBadge = (p) => isTop(p) ? `<b class="hi-badge" style="background:${PR_COLOR(p)}1A;color:${PR_COLOR(p)}">${esc(p)}</b>` : '';
+// «공이 남에게 있는» 상태. 마감이 지나도 지연으로 세지 않는다 — 내 차례가 아니기 때문.
+const isWaiting = (s) => S.waitingSet.has(s);
 /** 반복 계열 식별자. 회차는 별도 태스크로 복사될 뿐 계열 id가 없어서 주기+제목으로 묶는다. */
 const seriesKey = (t) => `${t.repeat_days} ${t.title}`;
 // Keep 스타일 파스텔 팔레트. 첫 항목('')은 기본 카드색. 진한 글자가 그대로 읽히는 밝기로 고정한다.
@@ -29,8 +23,12 @@ const NOTE_COLORS = ['', '#F8D7D4', '#FBE7CE', '#FBF3C2', '#DEF0D2', '#CDE9E2', 
  * done_at이 없는 구버전 완료 행은 예전처럼 마감일이 근사치다.
  */
 const endDate = (t) => (isDone(t.status) && t.done_at ? t.done_at.slice(0, 10) : t.due);
-/** 우선순위 우선, 같으면 날짜 순. 목록의 우선순위 정렬을 뺀 자리를 이 기본 정렬이 대신한다. */
-const byPriority = (a, b) => PR_RANK(a.priority) - PR_RANK(b.priority) || endDate(a).localeCompare(endDate(b));
+/** 기본 정렬 — 걸려 있는 날짜 순. 마감 없음(«언젠가»)은 항상 뒤로 민다. */
+const byDue = (a, b) => {
+  const x = endDate(a), y = endDate(b);
+  if (!x || !y) return (x ? 0 : 1) - (y ? 0 : 1);
+  return x.localeCompare(y);
+};
 
 // 상하위 관계는 1단계뿐이라 인덱스 없이 훑는다 (개인용 규모 — 수십~수백 건)
 const taskById = (id) => S.tasks.find((t) => t.id === id);
@@ -44,7 +42,7 @@ const childProgress = (id) => {
   return {
     done: kids.filter((t) => isDone(t.status)).length,
     total: kids.length,
-    late: kids.filter((t) => !isDone(t.status) && t.due < TODAY).length,
+    late: kids.filter((t) => !isDone(t.status) && !isWaiting(t.status) && t.due && t.due < TODAY).length,
   };
 };
 
@@ -56,7 +54,7 @@ const childBadge = (c) => c.total
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const parseD = (s) => { const p = String(s || '').split('-').map(Number); return new Date(p[0], (p[1] || 1) - 1, p[2] || 1); };
 const shift = (base, n) => iso(new Date(base.getTime() + n * DAY));
-const md = (s) => s.slice(5).replace('-', '/');
+const md = (s) => (s ? s.slice(5).replace('-', '/') : '');
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -64,16 +62,15 @@ const TODAY = iso(today);
 
 // 뷰가 물리 페이지 분리라 메모리 상태는 뷰를 옮길 때마다 초기화된다 — 필터·검색만 localStorage로 살린다.
 // 설정에서 지워진 값이 남아 있으면 reload()의 기존 검사가 'all'로 되돌린다.
-const FILTER_KEYS = ['query', 'fCategory', 'fType', 'fPriority', 'hideDone'];
+const FILTER_KEYS = ['query', 'fCategory', 'hideDone'];
 const savedFilters = (() => { try { return JSON.parse(localStorage.getItem('mywork.filters')) || {}; } catch { return {}; } })();
 
 const S = {
-  tasks: [], categories: [], types: [], statuses: [], priorities: [],
-  opt: { type: new Map(), status: new Map(), priority: new Map(), category: new Map() }, doneSet: new Set(),
+  tasks: [], categories: [], statuses: [],
+  opt: { status: new Map(), category: new Map() }, doneSet: new Set(), waitingSet: new Set(),
   settings: null,
   view: document.body.dataset.view || 'summary',
   query: savedFilters.query ?? '', fCategory: savedFilters.fCategory ?? 'all',
-  fType: savedFilters.fType ?? 'all', fPriority: savedFilters.fPriority ?? 'all',
   sortKey: 'due', sortDir: 1,
   calMonth: TODAY.slice(0, 7),
   hideDone: savedFilters.hideDone ?? false,
@@ -106,22 +103,17 @@ async function reload() {
   Object.assign(S, {
     tasks, notes, archNotes,
     categories: meta.categories.map((o) => o.name),
-    types: meta.types.map((o) => o.name),
     statuses: meta.statuses.map((o) => o.name),
-    priorities: meta.priorities.map((o) => o.name),
     opt: {
-      type: new Map(meta.types.map((o) => [o.name, o])),
       status: new Map(meta.statuses.map((o) => [o.name, o])),
-      priority: new Map(meta.priorities.map((o) => [o.name, o])),
       category: new Map(meta.categories.map((o) => [o.name, o])),
     },
     doneSet: new Set(meta.statuses.filter((o) => o.done).map((o) => o.name)),
+    waitingSet: new Set(meta.statuses.filter((o) => o.waiting).map((o) => o.name)),
     meta,
   });
   // 설정에서 이름을 바꾸거나 지운 값이 필터에 남아 있으면 아무것도 안 보이므로 푼다
   if (!S.categories.includes(S.fCategory)) S.fCategory = 'all';
-  if (!S.types.includes(S.fType)) S.fType = 'all';
-  if (!S.priorities.includes(S.fPriority)) S.fPriority = 'all';
   // 모달이 열린 채 체크리스트를 고치는 경우가 있어 서버 값으로 다시 맞춘다
   if (S.modal?.id) S.modal.subtasks = S.tasks.find((t) => t.id === S.modal.id)?.subtasks ?? [];
   render();
@@ -145,8 +137,6 @@ function filtered() {
   return S.tasks.filter((t) =>
     !(S.pending?.kind === 'task' && t.id === S.pending.id) && // 삭제 대기 중 — 되돌리기 시간이 끝날 때까지만 감춘다
     (S.fCategory === 'all' || t.category === S.fCategory) &&
-    (S.fType === 'all' || t.type === S.fType) &&
-    (S.fPriority === 'all' || t.priority === S.fPriority) &&
     (!q || t.title.toLowerCase().includes(q) || (t.memo || '').toLowerCase().includes(q) ||
       (t.subtasks ?? []).some((s) => s.title.toLowerCase().includes(q)))); // 세부 항목을 체크리스트에 적어도 검색에 걸린다
 }
@@ -164,16 +154,25 @@ function filteredNotes() {
 }
 
 // 지연 = 마감이 오늘 이전 + 미완료. 요약 뷰 표시와 일괄 재조정이 같은 정의를 쓴다.
-const lateOpen = () => filtered().filter((t) => !isDone(t.status) && t.due < TODAY);
+// 대기 중은 마감이 지나도 «내가 늦은 것»이 아니라 빠진다 — 일괄 재조정 대상도 아니다.
+const lateOpen = () => filtered().filter((t) => !isDone(t.status) && !isWaiting(t.status) && t.due && t.due < TODAY);
 const lateSelected = () => lateOpen().filter((t) => !S.reSel || S.reSel.has(t.id));
 
 function dueMeta(t) {
-  const diff = Math.round((parseD(t.due) - parseD(TODAY)) / DAY);
-  const short = md(t.due);
+  // 마감 없음은 «언젠가» — 지연도 D-day도 계산할 수 없다. diff는 정렬에 쓰이지 않으므로 null.
+  if (!t.due && !(isDone(t.status) && t.done_at)) {
+    return { color: 'var(--text-4)', text: '마감 없음', short: '—', diff: null };
+  }
+  const diff = Math.round((parseD(t.due ?? TODAY) - parseD(TODAY)) / DAY);
+  const short = md(t.due ?? '');
   // 완료 건은 마감일 대신 실제로 끝낸 날을 보여준다 — 지금까지는 마감일에 «완료»만 붙여 놓아 사실과 달랐다
   if (isDone(t.status)) {
     const at = md(endDate(t));
     return { color: 'var(--text-4)', text: `${at} 완료`, short: at, diff };
+  }
+  // 대기 중은 마감이 지나도 «지연»이라 하지 않는다 — 내 차례가 아닌 걸 붉게 칠하면 경고가 무뎌진다
+  if (isWaiting(t.status)) {
+    return { color: 'var(--text-4)', text: `${short} 대기`, short: `${short} ⏸`, diff };
   }
   if (diff < 0) return { color: 'var(--danger)', text: `${short} (${-diff}일 지연)`, short: `${short} ⚠`, diff };
   if (diff === 0) return { color: 'var(--danger)', text: `${short} (오늘 마감)`, short: `${short} 오늘`, diff };
@@ -185,10 +184,15 @@ function dueMeta(t) {
 function viewSummary(list) {
   const cnt = (st) => list.filter((t) => t.status === st).length;
   const open = list.filter((t) => !isDone(t.status));
-  // today_brief(MCP)와 같은 3분류 — 지연 / 오늘 마감 / 7일 내 예정. 각 구간 안에서는 우선순위가 앞선다.
-  const late = open.filter((t) => t.due < TODAY).sort(byPriority);
-  const dueToday = open.filter((t) => t.due === TODAY).sort(byPriority);
-  const week = open.filter((t) => t.due > TODAY && t.due <= shift(today, 7)).sort(byPriority);
+  // today_brief(MCP)와 같은 3분류 — 지연 / 오늘 마감 / 7일 내 예정. 각 구간 안에서는 마감일 순.
+  // 대기 중(공이 남에게)은 날짜 버킷에서 통째로 빠진다 — 마감이 지나도 내 차례가 아니다.
+  const waiting = open.filter((t) => isWaiting(t.status)).sort(byDue);
+  const mine = open.filter((t) => !isWaiting(t.status));
+  const late = mine.filter((t) => t.due && t.due < TODAY).sort(byDue);
+  const dueToday = mine.filter((t) => t.due === TODAY).sort(byDue);
+  const week = mine.filter((t) => t.due && t.due > TODAY && t.due <= shift(today, 7)).sort(byDue);
+  // 마감 없음 — 어느 날짜 버킷에도 속하지 않는다. 지연으로 세지 않는 게 이 축의 존재 이유다.
+  const someday = mine.filter((t) => !t.due);
   const overdue = late.length;
   const soon = dueToday.length + week.length;
   const items = checklistTotals(list);
@@ -197,8 +201,9 @@ function viewSummary(list) {
   const openStatuses = S.statuses.filter((s) => !isDone(s));
 
   const stats = [
-    // 진척률 = 끝난 태스크 + 미완료 태스크의 체크된 항목. 완료 건수도 같이 보여 둘을 구분한다.
-    { label: '전체 태스크', value: list.length, color: 'var(--text)', hint: `진척률 ${weightedPct(list, isDone)}% · 완료 ${doneCnt}건` },
+    // 평균 진척률은 뺐다 — 체크리스트를 거의 안 쓰는 데이터에서 나온 %는 실제와 무관하다.
+    { label: '전체 태스크', value: list.length, color: 'var(--text)',
+      hint: `완료 ${doneCnt}건${waiting.length ? ` · 대기 ${waiting.length}건` : ''}` },
     { label: '미완료', value: open.length, color: 'var(--accent)',
       hint: openStatuses.map((s) => `${s} ${cnt(s)}`).join(' · ') || '없음' },
     { label: '7일 내 마감', value: soon, color: 'var(--warn)', hint: '미완료 기준' },
@@ -211,27 +216,20 @@ function viewSummary(list) {
     const n = inCat.length || 1;
     return {
       label: c, count: inCat.length, d: inCat.filter((t) => isDone(t.status)).length,
-      pct: weightedPct(inCat, isDone),
       segs: S.statuses.map((s) => ({ color: STATUS_COLOR(s), w: (inCat.filter((t) => t.status === s).length / n) * 100 })),
     };
   }).filter((c) => c.count > 0);
 
-  const maxType = Math.max(1, ...S.types.map((ty) => list.filter((t) => t.type === ty).length));
-  const typeStats = S.types.map((ty) => {
-    const c = list.filter((t) => t.type === ty).length;
-    return { label: ty, count: c, color: TYPE_COLOR(ty), w: (c / maxType) * 100 };
-  }).filter((t) => t.count > 0);
-
   // ── 오늘의 액션 — 지연 섹션은 체크박스 + 일괄 마감 재조정 버튼을 가진다
   const sel = new Set(lateSelected().map((t) => t.id));
   const fri = shift(today, (5 - today.getDay() + 7) % 7); // 다가오는 금요일 (오늘이 금요일이면 오늘)
-  const laterCnt = open.length - overdue - soon;
+  const laterCnt = mine.length - overdue - soon - someday.length;
 
   const briefRow = (t, box = '') => {
     const dm = dueMeta(t);
     return `<div class="up-row" data-act="open" data-id="${t.id}">${box}
       <span class="dot" style="background:${CAT_COLOR(t.category)}"></span>
-      <span class="t">${topBadge(t.priority)}${esc(t.title)}</span>
+      <span class="t">${esc(t.title)}</span>
       <span class="c">${esc(t.category)}</span>
       <span class="d" style="color:${dm.color}">${dm.text}</span></div>`;
   };
@@ -248,12 +246,14 @@ function viewSummary(list) {
   const brief = `<div class="card" style="padding:18px">
     <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px">
       <div class="card-t">오늘의 액션</div>
-      <div style="font-size:11.5px;color:var(--text-4)">지연 → 오늘 마감 → 7일 내 예정 · 지연은 선택해서 마감일을 한 번에 미룰 수 있습니다</div>
+      <div style="font-size:11.5px;color:var(--text-4)">지연 → 오늘 마감 → 7일 내 예정 → 언젠가 → 대기 · 지연은 선택해서 마감일을 한 번에 미룰 수 있습니다</div>
     </div>
     ${overdue ? briefHead('지연', 'var(--danger)', overdue, reschedBtns)
       + late.map((t) => briefRow(t, `<input type="checkbox" data-act="resel" data-id="${t.id}" ${sel.has(t.id) ? 'checked' : ''}>`)).join('') : ''}
     ${dueToday.length ? briefHead('오늘 마감', 'var(--warn)', dueToday.length) + dueToday.map((t) => briefRow(t)).join('') : ''}
     ${week.length ? briefHead('예정 · 7일 내', 'var(--accent)', week.length) + week.map((t) => briefRow(t)).join('') : ''}
+    ${someday.length ? briefHead('언젠가 · 마감 없음', 'var(--icon)', someday.length) + someday.map((t) => briefRow(t)).join('') : ''}
+    ${waiting.length ? briefHead('대기 · 남의 차례', STATUS_COLOR(waiting[0].status), waiting.length) + waiting.map((t) => briefRow(t)).join('') : ''}
     ${open.length ? '' : '<div class="empty">미완료 태스크가 없습니다.</div>'}
     ${laterCnt > 0 ? `<div class="ck-hint" style="padding-top:10px">7일 이후 마감 미완료 ${laterCnt}건</div>` : ''}
   </div>`;
@@ -263,37 +263,27 @@ function viewSummary(list) {
       <div class="l">${s.label}</div><div class="v" style="color:${s.color}">${s.value}</div><div class="h">${s.hint}</div>
     </div>`).join('')}</div>
     ${brief}
-    <div class="two">
-      <div class="card" style="padding:18px">
-        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:14px">
-          <div class="card-t">업무분류별 현황</div>
-          <div style="font-size:11.5px;color:var(--text-4)">막대는 상태 · 진척은 체크리스트까지 반영</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:12px">${catStats.map((c) => `<div class="bar-row">
-          <div class="top"><b>${esc(c.label)}</b><span>${c.count}건 · 완료 ${c.d} · 진척 ${c.pct}%</span></div>
-          <div class="bar">${c.segs.map((s) => `<div style="width:${s.w}%;background:${s.color}"></div>`).join('')}</div>
-        </div>`).join('') || '<div class="empty">표시할 분류가 없습니다.</div>'}</div>
-        <div class="legend">
-          ${S.statuses.map((s) => `<span><i style="background:${STATUS_COLOR(s)}"></i>${esc(s)}</span>`).join('')}
-          ${items.total ? `<span style="margin-left:auto">체크리스트 ${items.done}/${items.total}</span>` : ''}
-        </div>
+    <div class="card" style="padding:18px">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:14px">
+        <div class="card-t">업무분류별 현황</div>
+        <div style="font-size:11.5px;color:var(--text-4)">막대는 진행상황 분포</div>
       </div>
-      <div class="card" style="padding:18px">
-        <div class="card-t" style="margin-bottom:14px">업무유형 분포</div>
-        <div style="display:flex;flex-direction:column;gap:9px">${typeStats.map((t) => `<div class="type-row">
-          <span class="l">${esc(t.label)}</span>
-          <div class="track"><div class="fill" style="width:${t.w}%;background:${t.color}"></div></div>
-          <span class="n">${t.count}</span></div>`).join('') || '<div class="empty">표시할 유형이 없습니다.</div>'}</div>
+      <div style="display:flex;flex-direction:column;gap:12px">${catStats.map((c) => `<div class="bar-row">
+        <div class="top"><b>${esc(c.label)}</b><span>${c.count}건 · 완료 ${c.d}</span></div>
+        <div class="bar">${c.segs.map((s) => `<div style="width:${s.w}%;background:${s.color}"></div>`).join('')}</div>
+      </div>`).join('') || '<div class="empty">표시할 분류가 없습니다.</div>'}</div>
+      <div class="legend">
+        ${S.statuses.map((s) => `<span><i style="background:${STATUS_COLOR(s)}"></i>${esc(s)}</span>`).join('')}
+        ${items.total ? `<span style="margin-left:auto">체크리스트 ${items.done}/${items.total}</span>` : ''}
       </div>
     </div>
   </div>`;
 }
 
-// 우선순위 전용 컬럼은 없앴다 — 값이 거의 한 등급에 몰려 정렬·스캔에 쓸모가 없었다.
-// 대신 가장 높은 등급만 제목 앞 배지로 드러낸다.
+// 우선순위·업무유형 컬럼은 없앴다 — 값이 한쪽에 쏠려(Medium 40:4, 유형 상위 2종이 86%)
+// 정렬에도 스캔에도 정보를 주지 못했다. 남은 축은 상태·분류·날짜뿐이다.
 const COLS = [
-  { key: 'title', label: '제목' }, { key: 'type', label: '유형' }, { key: 'status', label: '상태' },
-  { key: 'category', label: '분류' },
+  { key: 'title', label: '제목' }, { key: 'status', label: '상태' }, { key: 'category', label: '분류' },
   { key: 'start', label: '시작일' }, { key: 'due', label: '마감일' }, { key: '', label: '' },
 ];
 
@@ -344,10 +334,9 @@ function viewList(list) {
     const sub = t.parent_id ? `--sub:${CAT_COLOR(taskById(t.parent_id)?.category)}` : '';
     return `<div class="grid-row trow">
       <div class="main ${t.parent_id ? 'is-sub' : ''}" style="${sub}" data-act="open" data-id="${t.id}">
-        <span class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? 'var(--text-4)' : 'var(--text)'}">${t.parent_id ? '<span class="sub-mark">↳</span>' : ''}${done ? '' : topBadge(t.priority)}${esc(t.title)}</span>
+        <span class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? 'var(--text-4)' : 'var(--text)'}">${t.parent_id ? '<span class="sub-mark">↳</span>' : ''}${esc(t.title)}</span>
         <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${folds.has(t.id) ? `<b class="fold-badge" data-act="fold" data-id="${t.id}">${S.openSeries.has(seriesKey(t)) ? '− 이전 회차 접기' : `＋ 이전 회차 ${folds.get(t.id)}건`}</b>` : ''}${childBadge(c)}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${esc(t.memo || '—')}</span>
       </div>
-      <div class="cell"><span class="chip" style="background:${TYPE_BG(t.type)};color:${TYPE_COLOR(t.type)}">${esc(t.type)}</span></div>
       <div class="cell"><span class="chip" style="background:${STATUS_BG(t.status)};color:${STATUS_COLOR(t.status)}">${esc(t.status)}</span></div>
       <div class="cell" style="color:var(--text-3)">${esc(t.category)}</div>
       <div class="cell" style="color:var(--text-4);font-variant-numeric:tabular-nums">${md(t.start)}</div>
@@ -368,7 +357,7 @@ function viewBoard(list) {
   const cols = S.meta.statuses;
   return `<div class="board" style="grid-template-columns:repeat(${cols.length},minmax(220px,1fr))">${cols.map((o) => {
     const st = o.name;
-    const tasks = list.filter((t) => t.status === st).sort(byPriority);
+    const tasks = list.filter((t) => t.status === st).sort(byDue);
     return `<div class="bcol ${S.dragId ? 'drag' : ''}" data-drop="${esc(st)}" data-opt="${o.id}">
       <div class="head" draggable="true" title="드래그해서 열 순서 변경">
         <span class="ck-grip">⠿</span>
@@ -381,9 +370,8 @@ function viewBoard(list) {
         return `<div class="bcard ${parent ? 'is-sub' : ''} ${S.dragId === t.id ? 'dragging' : ''}" draggable="true"
              style="${parent ? `--sub:${CAT_COLOR(parent.category)}` : ''}" data-act="open" data-id="${t.id}">
           ${parent ? `<div class="parent-line" data-act="open" data-id="${parent.id}" title="상위 태스크: ${esc(parent.title)}">↳ ${esc(parent.title)}</div>` : ''}
-          <div class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? 'var(--text-4)' : 'var(--text)'}">${done ? '' : topBadge(t.priority)}${esc(t.title)}</div>
+          <div class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? 'var(--text-4)' : 'var(--text)'}">${esc(t.title)}</div>
           <div class="tags">
-            <span style="background:${TYPE_BG(t.type)};color:${TYPE_COLOR(t.type)}">${esc(t.type)}</span>
             <span style="background:${CAT_COLOR(t.category)}1A;color:${CAT_COLOR(t.category)};font-weight:400">${esc(t.category)}</span>
             ${childBadge(c)}
             ${t.repeat_days ? `<span style="background:var(--warn-bg);color:var(--warn)">🔁 ${repeatLabel(t.repeat_days)}</span>` : ''}
@@ -419,7 +407,7 @@ function viewCalendar(list) {
         <div style="display:flex;align-items:center;gap:5px">
           <span class="n" style="font-weight:${isToday ? 700 : 500};background:${isToday ? 'var(--accent)' : 'transparent'};color:${isToday ? 'var(--on-accent)' : !inMonth ? 'var(--text-4)' : d.getDay() === 0 ? 'var(--danger)' : d.getDay() === 6 ? 'var(--accent)' : 'var(--text-2)'}">${d.getDate()}</span>
         </div>
-        ${evts.map((t) => `<div class="ev" data-act="open" data-id="${t.id}" style="background:${TYPE_BG(t.type)};color:${TYPE_COLOR(t.type)};border-left:3px solid ${TYPE_COLOR(t.type)};text-decoration:${isDone(t.status) ? 'line-through' : 'none'}">${esc(t.title)}</div>`).join('')}
+        ${evts.map((t) => `<div class="ev" data-act="open" data-id="${t.id}" style="background:${CAT_COLOR(t.category)}1A;color:${CAT_COLOR(t.category)};border-left:3px solid ${CAT_COLOR(t.category)};text-decoration:${isDone(t.status) ? 'line-through' : 'none'}">${esc(t.title)}</div>`).join('')}
       </div>`,
       empty: evts.length === 0,
     });
@@ -440,7 +428,9 @@ function viewCalendar(list) {
   </div>`;
 }
 
-function viewTimeline(list) {
+function viewTimeline(all) {
+  // 마감 없는 태스크는 막대를 그릴 수 없다 — 축 계산에서 빼지 않으면 NaN이 전파된다
+  const list = all.filter((t) => t.due);
   if (!list.length) return '<div class="card empty">표시할 태스크가 없습니다.</div>';
   const starts = list.map((t) => parseD(t.start).getTime());
   const ends = list.map((t) => parseD(t.due).getTime());
@@ -469,7 +459,7 @@ function viewTimeline(list) {
       <div class="g-track">
         <div class="today" style="left:${todayLeft >= 0 && todayLeft <= 100 ? todayLeft : -10}%"></div>
         <div class="bar2" data-act="open" data-id="${t.id}" title="${range}"
-             style="left:${left}%;width:${width}%;background:${isDone(t.status) ? 'var(--done-bar)' : TYPE_COLOR(t.type)}"></div>
+             style="left:${left}%;width:${width}%;background:${isDone(t.status) ? 'var(--done-bar)' : CAT_COLOR(t.category)}"></div>
         <div class="lab" style="left:${outside ? 'auto' : `${left + width}%`};right:${outside ? `${100 - left}%` : '0'};justify-content:${outside ? 'flex-end' : 'flex-start'}">
           <span>${range}</span>
         </div>
@@ -592,7 +582,7 @@ function viewParent(m) {
   return `<div class="field"><label>상위 태스크</label>
     <select id="d-parent">
       <option value="">없음</option>${keep}
-      ${cand.map((t) => `<option value="${t.id}" ${t.id === m.parent_id ? 'selected' : ''}>${esc(t.title)} · ${md(t.due)}</option>`).join('')}
+      ${cand.map((t) => `<option value="${t.id}" ${t.id === m.parent_id ? 'selected' : ''}>${esc(t.title)} · ${t.due ? md(t.due) : '마감 없음'}</option>`).join('')}
     </select></div>`;
 }
 
@@ -634,6 +624,9 @@ function viewSettings() {
         <input class="opt-name" value="${esc(o.name)}" data-act="opt-name" data-id="${o.id}">
         ${kind === 'status' ? `<label class="opt-done" title="이 상태면 '끝난 것'으로 셉니다">
           <input type="checkbox" ${o.done ? 'checked' : ''} data-act="opt-done" data-id="${o.id}"> 완료
+        </label>
+        <label class="opt-done" title="공이 남에게 있는 상태 — 마감이 지나도 지연으로 세지 않습니다">
+          <input type="checkbox" ${o.waiting ? 'checked' : ''} data-act="opt-waiting" data-id="${o.id}"> 대기
         </label>` : `<span class="ck-n">${used(o.name)}건</span>`}
         <button class="x-btn" data-act="opt-del" data-id="${o.id}" data-name="${esc(o.name)}" data-used="${used(o.name)}">×</button>
       </div>`).join('')}</div>
@@ -642,7 +635,7 @@ function viewSettings() {
         <button class="btn-sm" data-act="opt-add">추가</button>
       </div>
       <div class="ck-hint">${kind === 'status'
-        ? '<b>완료</b>로 표시한 상태는 진척률·보관·반복 생성·완료 숨김에서 «끝남»으로 취급됩니다. 최소 하나는 있어야 합니다. 순서는 보드 열 순서이며, 보드에서 열을 끌어도 바뀝니다.'
+        ? '<b>완료</b>로 표시한 상태는 보관·반복 생성·완료 숨김에서 «끝남»으로 취급됩니다. 최소 하나는 있어야 합니다. <b>대기</b>는 «공이 남에게 있음»이라 마감이 지나도 지연으로 세지 않습니다(없어도 됩니다). 순서는 보드 열 순서이며, 보드에서 열을 끌어도 바뀝니다.'
         : `이름을 바꾸면 그 ${KIND_LABEL[kind]}을(를) 쓰던 태스크도 함께 바뀝니다. 삭제하면 남은 첫 항목으로 옮겨집니다.`}</div>
     </div>
     <div class="mf"><div style="flex:1"></div>
@@ -670,7 +663,7 @@ function viewArchive() {
         <label>보관됨 <span class="ck-n">${a.list.length}건</span></label>
         <div class="ck-list" style="max-height:260px;overflow:auto">${a.list.map((t) => `<div class="ck-item">
           <span class="ck-t">${esc(t.title)}</span>
-          <span class="ck-n">${t.due}</span>
+          <span class="ck-n">${t.due ?? '마감 없음'}</span>
           <button class="btn-sm" data-act="arch-restore" data-id="${t.id}">복원</button>
           <button class="x-btn" data-act="arch-delete" data-id="${t.id}" title="영구 삭제">×</button>
         </div>`).join('') || '<div class="ck-hint">보관된 태스크가 없습니다.</div>'}</div>
@@ -706,7 +699,7 @@ function viewNoteModal() {
       <div class="field"><label>연결 태스크</label>
         <select id="n-task"><option value="">없음</option>
           ${n.task_id && !taskById(n.task_id) ? `<option value="${n.task_id}" selected>#${n.task_id} (보관됨)</option>` : ''}
-          ${S.tasks.map((t) => `<option value="${t.id}" ${t.id === n.task_id ? 'selected' : ''}>${esc(t.title)} · ${md(t.due)}</option>`).join('')}
+          ${S.tasks.map((t) => `<option value="${t.id}" ${t.id === n.task_id ? 'selected' : ''}>${esc(t.title)} · ${t.due ? md(t.due) : '마감 없음'}</option>`).join('')}
         </select>
         <div class="ck-hint">연결하면 태스크 모달에서도 이 메모가 보입니다.</div></div>
     </div>
@@ -744,16 +737,13 @@ function viewModal() {
       <div class="field"><label>제목</label>
         <input id="d-title" value="${esc(m.title)}" placeholder="예: 투자심의AI 파일럿 리뷰 준비"></div>
       <div class="row2">
-        <div class="field"><label>업무유형</label><select id="d-type">${opts(S.types, m.type)}</select></div>
         <div class="field"><label>진행상황</label><select id="d-status">${opts(S.statuses, m.status)}</select></div>
-      </div>
-      <div class="row2">
         <div class="field"><label>업무분류</label><select id="d-category">${opts(S.categories, m.category)}</select></div>
-        <div class="field"><label>우선순위</label><select id="d-priority">${opts(S.priorities, m.priority)}</select></div>
       </div>
       <div class="row2">
         <div class="field"><label>시작일</label><input type="date" id="d-start" value="${m.start}"></div>
-        <div class="field"><label>마감일</label><input type="date" id="d-due" value="${m.due}"></div>
+        <div class="field"><label>마감일 <span style="font-weight:400;color:var(--text-4)">· 비우면 «언젠가»</span></label>
+          <input type="date" id="d-due" value="${m.due ?? ''}"></div>
       </div>
       ${viewParent(m)}
       <div class="field">
@@ -800,17 +790,6 @@ function render() {
   const fc = document.getElementById('f-category');
   fc.innerHTML = `<option value="all">분류: 전체</option>${S.categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}`;
   fc.value = S.fCategory;
-  const ft = document.getElementById('f-type');
-  if (ft) {
-    ft.innerHTML = `<option value="all">유형: 전체</option>${S.types.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}`;
-    ft.value = S.fType;
-  }
-  // 우선순위 필터는 3지 선택 대신 «최상위 등급만» 토글이다 — 등급 이름은 설정에서 온다
-  const fp = document.getElementById('f-priority');
-  if (fp) {
-    fp.textContent = `${S.priorities[0] ?? '우선순위'}만`;
-    fp.classList.toggle('on', S.fPriority !== 'all');
-  }
   document.getElementById('hide-done')?.classList.toggle('on', S.hideDone);
   document.getElementById('show-arch-notes')?.classList.toggle('on', S.showArchivedNotes);
 
@@ -824,7 +803,7 @@ function render() {
 // ── 모달 조작 ────────────────────────────────────────
 // 열 때 스냅샷을 찍고 닫을 때 비교한다 — 저장 안 한 변경을 조용히 버리지 않기 위해.
 // 체크리스트·하위 태스크는 즉시 저장이라 비교 대상이 아니다.
-const TASK_FIELDS = ['title', 'type', 'status', 'category', 'priority', 'start', 'due', 'memo', 'repeat_days', 'parent_id'];
+const TASK_FIELDS = ['title', 'status', 'category', 'start', 'due', 'memo', 'repeat_days', 'parent_id'];
 const NOTE_FIELDS = ['title', 'body', 'category', 'color', 'task_id'];
 const snap = (o, fields) => JSON.stringify(fields.map((k) => o[k] ?? '')); // null과 빈 입력을 같게 본다
 
@@ -846,15 +825,16 @@ function openTask(id) {
   if (t) { S.modal = { ...t }; S.taskSnap = snap(S.modal, TASK_FIELDS); S.newSub = ''; S.error = ''; S.focusId = 'd-title'; render(); }
 }
 function openNew(status, parentId = null) {
-  // 하위 태스크는 상위의 분류·유형·마감일을 물려받는다 — 매번 다시 고르지 않도록
+  // 하위 태스크는 상위의 분류·마감일을 물려받는다 — 매번 다시 고르지 않도록
   const p = parentId ? taskById(parentId) : null;
   // 기본값은 설정에서 가져온다 — 이름을 바꾸거나 지워도 기본값이 깨지지 않게
   S.modal = {
-    id: null, title: '', type: p?.type ?? S.types[0], status: status || S.statuses.find((s) => !isDone(s)) || S.statuses[0],
+    id: null, title: '', status: status || S.statuses.find((s) => !isDone(s)) || S.statuses[0],
     category: p?.category ?? (S.fCategory !== 'all' ? S.fCategory : S.categories[0]),
-    priority: S.priorities.includes('Medium') ? 'Medium' : S.priorities[0],
     // 상위가 이미 지난 마감이면 물려받지 않는다 — 시작일(오늘)보다 앞서면 저장이 막힌다
-    start: TODAY, due: p && p.due > TODAY ? p.due : shift(today, 7), memo: '', repeat_days: 0, subtasks: [],
+    // 기본은 «마감 없음» — 자동으로 붙던 +7일이 가짜 마감의 근원이었다.
+    // 상위가 아직 안 지난 마감을 갖고 있을 때만 물려받는다.
+    start: TODAY, due: p && p.due > TODAY ? p.due : null, memo: '', repeat_days: 0, subtasks: [],
     parent_id: parentId,
   };
   S.taskSnap = snap(S.modal, TASK_FIELDS);
@@ -866,8 +846,8 @@ function syncDraft() {
   if (!S.modal) return;
   const v = (id) => document.getElementById(id)?.value;
   Object.assign(S.modal, {
-    title: v('d-title'), type: v('d-type'), status: v('d-status'), category: v('d-category'),
-    priority: v('d-priority'), start: v('d-start'), due: v('d-due'), memo: v('d-memo'),
+    title: v('d-title'), status: v('d-status'), category: v('d-category'),
+    start: v('d-start'), due: v('d-due'), memo: v('d-memo'),
     repeat_days: Number(v('d-repeat') ?? 0),
   });
   // 하위를 가진 태스크는 select 자체가 없다 — 그럴 땐 기존 값을 그대로 둔다
@@ -892,7 +872,7 @@ async function loadArchive(before) {
     api(`/api/archivable?before=${before}`),
     api('/api/tasks?archived=1'),
   ]);
-  S.archive = { before, count, list: list.slice().sort((a, b) => b.due.localeCompare(a.due)) };
+  S.archive = { before, count, list: list.slice().sort((a, b) => (b.due ?? '').localeCompare(a.due ?? '')) };
 }
 
 async function addOption() {
@@ -940,7 +920,7 @@ async function saveDraft() {
   syncDraft();
   const m = S.modal;
   if (!m.title.trim()) { S.error = '제목을 입력하세요'; return render(); }
-  const body = { title: m.title, type: m.type, status: m.status, category: m.category, priority: m.priority,
+  const body = { title: m.title, status: m.status, category: m.category,
     start: m.start, due: m.due, memo: m.memo, repeat_days: m.repeat_days ?? 0, parent_id: m.parent_id ?? null };
   await mutate(async () => {
     if (m.id) await send(`/api/tasks/${m.id}`, 'PATCH', body);
@@ -1015,10 +995,10 @@ async function saveQuickTask(keepOpen = false) {
   if (!title) return keepOpen ? undefined : render();
   if (keepOpen) S.focusId = 'bq-title'; // 재렌더로 입력창이 비워진 뒤 커서를 되돌린다
   await mutate(() => send('/api/tasks', 'POST', {
-    title, type: S.types[0], status: st,
+    title, status: st,
     category: S.fCategory !== 'all' ? S.fCategory : S.categories[0],
-    priority: S.priorities.includes('Medium') ? 'Medium' : S.priorities[0],
-    start: TODAY, due: shift(today, 7), memo: '', repeat_days: 0, parent_id: null,
+    // 빠른 추가에는 마감을 붙이지 않는다 — 캡처가 목적이지 일정 잡기가 아니다
+    start: TODAY, due: null, memo: '', repeat_days: 0, parent_id: null,
   }));
 }
 
@@ -1288,15 +1268,10 @@ document.addEventListener('drop', (e) => {
 
 document.getElementById('q').addEventListener('input', (e) => { S.query = e.target.value; render(); });
 document.getElementById('f-category').addEventListener('change', (e) => { S.fCategory = e.target.value; render(); });
-document.getElementById('f-type')?.addEventListener('change', (e) => { S.fType = e.target.value; render(); });
-document.getElementById('f-priority')?.addEventListener('click', () => {
-  S.fPriority = S.fPriority === 'all' ? S.priorities[0] : 'all';
-  render();
-});
 document.getElementById('hide-done')?.addEventListener('click', () => { S.hideDone = !S.hideDone; render(); });
 document.getElementById('open-archive')?.addEventListener('click', openArchive);
 document.getElementById('open-settings')?.addEventListener('click', () => {
-  S.modal = S.archive = null; S.error = ''; S.settings = 'type'; render();
+  S.modal = S.archive = null; S.error = ''; S.settings = 'status'; render();
 });
 document.getElementById('new-task')?.addEventListener('click', () => openNew());
 document.getElementById('show-arch-notes')?.addEventListener('click', () => { S.showArchivedNotes = !S.showArchivedNotes; render(); });
@@ -1307,6 +1282,7 @@ document.addEventListener('change', (e) => {
   const act = e.target.dataset?.act, id = e.target.dataset?.id;
   if (act === 'opt-color') return mutate(() => send(`/api/options/${id}`, 'PATCH', { color: e.target.value }));
   if (act === 'opt-done') return mutate(() => send(`/api/options/${id}`, 'PATCH', { done: e.target.checked }));
+  if (act === 'opt-waiting') return mutate(() => send(`/api/options/${id}`, 'PATCH', { waiting: e.target.checked }));
   // 이름은 포커스를 벗어날 때만 저장 — 한 글자마다 태스크를 갱신하지 않도록
   if (act === 'opt-name') {
     const name = e.target.value.trim();
