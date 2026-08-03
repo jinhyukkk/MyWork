@@ -44,6 +44,7 @@ const S = {
   calMonth: TODAY.slice(0, 7),
   hideDone: false,
   modal: null, archive: null, newSub: '', dragId: null, dragSub: null, dragOpt: null, dragOptKind: null, error: '',
+  reSel: null, // 지연 일괄 재조정 선택. null = 전부 선택(기본값)
 };
 
 // ── API ──────────────────────────────────────────────
@@ -104,6 +105,10 @@ function filtered() {
     (!q || t.title.toLowerCase().includes(q) || (t.memo || '').toLowerCase().includes(q)));
 }
 
+// 지연 = 마감이 오늘 이전 + 미완료. 요약 뷰 표시와 일괄 재조정이 같은 정의를 쓴다.
+const lateOpen = () => filtered().filter((t) => !isDone(t.status) && t.due < TODAY);
+const lateSelected = () => lateOpen().filter((t) => !S.reSel || S.reSel.has(t.id));
+
 function dueMeta(t) {
   const diff = Math.round((parseD(t.due) - parseD(TODAY)) / DAY);
   const short = md(t.due);
@@ -118,8 +123,13 @@ function dueMeta(t) {
 function viewSummary(list) {
   const cnt = (st) => list.filter((t) => t.status === st).length;
   const open = list.filter((t) => !isDone(t.status));
-  const overdue = open.filter((t) => dueMeta(t).diff < 0).length;
-  const soon = open.filter((t) => { const d = dueMeta(t).diff; return d >= 0 && d <= 7; }).length;
+  const byDue = (a, b) => a.due.localeCompare(b.due);
+  // today_brief(MCP)와 같은 3분류 — 지연 / 오늘 마감 / 7일 내 예정
+  const late = open.filter((t) => t.due < TODAY).sort(byDue);
+  const dueToday = open.filter((t) => t.due === TODAY).sort(byDue);
+  const week = open.filter((t) => t.due > TODAY && t.due <= shift(today, 7)).sort(byDue);
+  const overdue = late.length;
+  const soon = dueToday.length + week.length;
   const items = checklistTotals(list);
 
   const doneCnt = list.filter((t) => isDone(t.status)).length;
@@ -151,12 +161,45 @@ function viewSummary(list) {
     return { label: ty, count: c, color: TYPE_COLOR(ty), w: (c / maxType) * 100 };
   }).filter((t) => t.count > 0);
 
-  const upcoming = open.slice().sort((a, b) => a.due.localeCompare(b.due)).slice(0, 6);
+  // ── 오늘의 액션 — 지연 섹션은 체크박스 + 일괄 마감 재조정 버튼을 가진다
+  const sel = new Set(lateSelected().map((t) => t.id));
+  const fri = shift(today, (5 - today.getDay() + 7) % 7); // 다가오는 금요일 (오늘이 금요일이면 오늘)
+  const laterCnt = open.length - overdue - soon;
+
+  const briefRow = (t, box = '') => {
+    const dm = dueMeta(t);
+    return `<div class="up-row" data-act="open" data-id="${t.id}">${box}
+      <span class="dot" style="background:${PR_COLOR(t.priority)}"></span>
+      <span class="t">${esc(t.title)}</span>
+      <span class="c">${esc(t.category)}</span>
+      <span class="d" style="color:${dm.color}">${dm.text}</span></div>`;
+  };
+  const briefHead = (label, color, n, extra = '') =>
+    `<div class="brief-h"><i style="background:${color}"></i><b>${label}</b><span class="n">${n}</span>${extra}</div>`;
+
+  const reschedBtns = `<span style="margin-left:auto;display:flex;gap:6px">
+    <button class="btn-sm" data-act="resched" data-to="${TODAY}" ${sel.size ? '' : 'disabled'}>선택 ${sel.size}건 → 오늘</button>
+    ${fri === TODAY ? '' : `<button class="btn-sm" data-act="resched" data-to="${fri}" ${sel.size ? '' : 'disabled'}>→ ${md(fri)} 금요일</button>`}
+  </span>`;
+
+  const brief = `<div class="card" style="padding:18px">
+    <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px">
+      <div class="card-t">오늘의 액션</div>
+      <div style="font-size:11.5px;color:#8A919C">지연 → 오늘 마감 → 7일 내 예정 · 지연은 선택해서 마감일을 한 번에 미룰 수 있습니다</div>
+    </div>
+    ${overdue ? briefHead('지연', '#D64545', overdue, reschedBtns)
+      + late.map((t) => briefRow(t, `<input type="checkbox" data-act="resel" data-id="${t.id}" ${sel.has(t.id) ? 'checked' : ''}>`)).join('') : ''}
+    ${dueToday.length ? briefHead('오늘 마감', '#D98200', dueToday.length) + dueToday.map((t) => briefRow(t)).join('') : ''}
+    ${week.length ? briefHead('예정 · 7일 내', '#2F6FED', week.length) + week.map((t) => briefRow(t)).join('') : ''}
+    ${open.length ? '' : '<div class="empty">미완료 태스크가 없습니다.</div>'}
+    ${laterCnt > 0 ? `<div class="ck-hint" style="padding-top:10px">7일 이후 마감 미완료 ${laterCnt}건</div>` : ''}
+  </div>`;
 
   return `<div class="stack">
     <div class="stats">${stats.map((s) => `<div class="card stat">
       <div class="l">${s.label}</div><div class="v" style="color:${s.color}">${s.value}</div><div class="h">${s.hint}</div>
     </div>`).join('')}</div>
+    ${brief}
     <div class="two">
       <div class="card" style="padding:18px">
         <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:14px">
@@ -179,20 +222,6 @@ function viewSummary(list) {
           <div class="track"><div class="fill" style="width:${t.w}%;background:${t.color}"></div></div>
           <span class="n">${t.count}</span></div>`).join('') || '<div class="empty">표시할 유형이 없습니다.</div>'}</div>
       </div>
-    </div>
-    <div class="card" style="padding:18px">
-      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px">
-        <div class="card-t">마감 임박 · 지연</div>
-        <div style="font-size:11.5px;color:#8A919C">미완료 태스크를 마감일 순으로</div>
-      </div>
-      <div style="display:flex;flex-direction:column">${upcoming.map((t) => {
-        const dm = dueMeta(t);
-        return `<div class="up-row" data-act="open" data-id="${t.id}">
-          <span class="dot" style="background:${PR_COLOR(t.priority)}"></span>
-          <span class="t">${esc(t.title)}</span>
-          <span class="c">${esc(t.category)}</span>
-          <span class="d" style="color:${dm.color}">${dm.text}</span></div>`;
-      }).join('') || '<div class="empty">미완료 태스크가 없습니다.</div>'}</div>
     </div>
   </div>`;
 }
@@ -714,6 +743,21 @@ document.addEventListener('click', (e) => {
     if (n === 0) S.calMonth = TODAY.slice(0, 7);
     else { const [y, m] = S.calMonth.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); S.calMonth = iso(d).slice(0, 7); }
     return render();
+  }
+  if (act === 'resel') {
+    e.stopPropagation();
+    S.reSel = new Set(lateSelected().map((t) => t.id)); // 현재 선택을 확정한 뒤 토글
+    S.reSel.has(Number(id)) ? S.reSel.delete(Number(id)) : S.reSel.add(Number(id));
+    return render();
+  }
+  if (act === 'resched') {
+    const to = el.dataset.to;
+    const targets = lateSelected();
+    if (!targets.length || !confirm(`지연 태스크 ${targets.length}건의 마감일을 ${md(to)}(으)로 옮길까요?`)) return;
+    return mutate(async () => {
+      await Promise.all(targets.map((t) => send(`/api/tasks/${t.id}`, 'PATCH', { due: to })));
+      S.reSel = null;
+    });
   }
   if (act === 'open') return openTask(id);
   if (act === 'new') return openNew(el.dataset.status);

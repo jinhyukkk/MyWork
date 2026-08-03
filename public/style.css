@@ -73,6 +73,11 @@
   .up-row .t { flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .up-row .c { font-size:11px; color:#6B7280; background:#F1F3F6; padding:3px 8px; border-radius:4px; }
   .up-row .d { font-size:11.5px; font-weight:600; width:104px; text-align:right; font-variant-numeric:tabular-nums; }
+  .up-row input[type=checkbox] { width:15px; height:15px; accent-color:#2F6FED; cursor:pointer; flex:none; }
+  .brief-h { display:flex; align-items:center; gap:7px; padding:14px 8px 7px; font-size:11.5px; font-weight:650; color:#3C424C; border-bottom:1px solid #F0F2F5; }
+  .brief-h i { width:7px; height:7px; border-radius:50%; flex:none; }
+  .brief-h .n { color:#8A919C; font-weight:600; font-variant-numeric:tabular-nums; }
+  .brief-h .btn-sm { height:26px; line-height:24px; padding:0 10px; font-size:11.5px; }
 
   /* ── 목록 ── */
   .grid-row { min-width:880px; display:grid; grid-template-columns:minmax(240px,1fr) 90px 92px 130px 88px 108px 108px 40px; }

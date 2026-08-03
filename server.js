@@ -8,7 +8,8 @@ import * as store from './store.js';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 4000;
 
-export function createApp(db = openDb()) {
+// mcp.js와 같은 환경변수로 DB 경로를 바꿀 수 있다 (테스트·격리 실행용)
+export function createApp(db = openDb(process.env.MYWORK_DB_PATH)) {
   const app = express();
   app.use(express.json());
   // 뷰별 페이지가 물리 파일로 나뉘어 있다 — /summary → summary.html
