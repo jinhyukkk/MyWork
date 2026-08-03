@@ -237,9 +237,11 @@ function viewSummary(list) {
   const briefHead = (label, color, n, extra = '') =>
     `<div class="brief-h"><i style="background:${color}"></i><b>${label}</b><span class="n">${n}</span>${extra}</div>`;
 
-  const reschedBtns = `<span style="margin-left:auto;display:flex;gap:6px">
+  // 오늘·금요일은 자주 쓰는 두 값의 지름길이고, 그 밖의 날짜는 date 입력으로 직접 고른다(고르는 순간 실행).
+  const reschedBtns = `<span style="margin-left:auto;display:flex;gap:6px;align-items:center">
     <button class="btn-sm" data-act="resched" data-to="${TODAY}" ${sel.size ? '' : 'disabled'}>선택 ${sel.size}건 → 오늘</button>
     ${fri === TODAY ? '' : `<button class="btn-sm" data-act="resched" data-to="${fri}" ${sel.size ? '' : 'disabled'}>→ ${md(fri)} 금요일</button>`}
+    <input type="date" id="resched-date" class="resched-date" min="${TODAY}" title="다른 날짜로 옮깁니다" ${sel.size ? '' : 'disabled'}>
   </span>`;
 
   const brief = `<div class="card" style="padding:18px">
@@ -851,6 +853,16 @@ function syncDraft() {
   S.newSub = v('d-newsub') ?? '';
 }
 
+/** 선택한 지연 태스크의 마감일만 일괄 변경. 지름길 버튼과 날짜 직접 지정이 같은 경로를 쓴다. */
+function reschedule(to) {
+  const targets = lateSelected();
+  if (!targets.length || !confirm(`지연 태스크 ${targets.length}건의 마감일을 ${md(to)}(으)로 옮길까요?`)) return render();
+  return mutate(async () => {
+    await Promise.all(targets.map((t) => send(`/api/tasks/${t.id}`, 'PATCH', { due: to })));
+    S.reSel = null;
+  });
+}
+
 /** 보관 모달의 대상 건수와 보관 목록을 서버에서 다시 읽는다. */
 async function loadArchive(before) {
   const [{ count }, list] = await Promise.all([
@@ -1070,15 +1082,7 @@ document.addEventListener('click', (e) => {
     S.reSel.has(Number(id)) ? S.reSel.delete(Number(id)) : S.reSel.add(Number(id));
     return render();
   }
-  if (act === 'resched') {
-    const to = el.dataset.to;
-    const targets = lateSelected();
-    if (!targets.length || !confirm(`지연 태스크 ${targets.length}건의 마감일을 ${md(to)}(으)로 옮길까요?`)) return;
-    return mutate(async () => {
-      await Promise.all(targets.map((t) => send(`/api/tasks/${t.id}`, 'PATCH', { due: to })));
-      S.reSel = null;
-    });
-  }
+  if (act === 'resched') return reschedule(el.dataset.to);
   if (act === 'fold') {
     const key = seriesKey(taskById(Number(id)));
     S.openSeries.has(key) ? S.openSeries.delete(key) : S.openSeries.add(key);
@@ -1251,6 +1255,7 @@ document.getElementById('show-arch-notes')?.addEventListener('click', () => { S.
 // 기준일을 바꾸면 대상 건수를 다시 센다
 document.addEventListener('change', (e) => {
   if (e.target.id === 'a-before') return archiveAction(async () => {});
+  if (e.target.id === 'resched-date' && e.target.value) return reschedule(e.target.value);
   const act = e.target.dataset?.act, id = e.target.dataset?.id;
   if (act === 'opt-color') return mutate(() => send(`/api/options/${id}`, 'PATCH', { color: e.target.value }));
   if (act === 'opt-done') return mutate(() => send(`/api/options/${id}`, 'PATCH', { done: e.target.checked }));
