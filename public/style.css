@@ -45,6 +45,26 @@
   ::-webkit-scrollbar-thumb { background:var(--disabled); border-radius:8px; border:3px solid transparent; background-clip:content-box; }
   input, select, textarea, button { font-family:inherit; }
 
+  /* ── 모션 ──
+     hover 규칙 30여 곳이 전부 즉각 전환이라 커서가 지나가면 화면이 딱딱 끊긴다.
+     전환은 색·그림자·투명도로만 건다 — 폭·높이를 넣으면 매 프레임 리플로우가 돈다.
+     뷰는 물리 페이지라 render()에 View Transitions를 감지 않고 @view-transition으로 넘긴다.
+     즉각성이 정보인 곳(진척 막대·간트 막대)에는 걸지 않는다.
+     !important을 쓰는 이유는 포커스 링과 같다 — `.nav-btn{all:unset}`류 17곳이 (0,1,0)이라
+     (0,0,1)인 `button` 셀렉터를 이긴다. 클래스를 17개 나열하고 순서까지 맞추느니 빼놓는다. */
+  a, button, .trow, .up-row, .bcard, .note-card, .note-actions, .ck-item, .ck-box,
+  .g-row, .pj-card, .day .ev, .opt-name, .cat-btn {
+    transition: background-color .12s ease, color .12s ease, border-color .12s ease,
+                box-shadow .16s ease, opacity .12s ease, filter .12s ease, transform .12s ease !important;
+  }
+  /* 움직임을 줄이라고 한 사용자에겐 전환도 페이지 교차도 없앤다. 켜는 쪽에만 걸어 기본이 «끔»이 되게 한다. */
+  @media (prefers-reduced-motion: no-preference) {
+    @view-transition { navigation: auto; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration:.01ms !important; animation-duration:.01ms !important; }
+  }
+
   .app { height:100vh; display:flex; font-family:Pretendard,-apple-system,'Segoe UI',sans-serif; color:var(--text); background:var(--bg); overflow:hidden; }
 
   /* ── 사이드바 ── */
@@ -329,7 +349,7 @@
   .note-card .nb { font-size:12.5px; line-height:1.55; color:var(--text-2); white-space:pre-wrap; word-break:break-word; max-height:300px; overflow:hidden; }
   .note-card .nfoot { display:flex; gap:6px; flex-wrap:wrap; }
   .note-card .note-task:hover { filter:brightness(.95); }
-  .note-card .note-actions { display:flex; gap:2px; justify-content:flex-end; opacity:0; transition:opacity .12s; }
+  .note-card .note-actions { display:flex; gap:2px; justify-content:flex-end; opacity:0; }
   .note-card:hover .note-actions { opacity:1; }
   .note-actions button { all:unset; cursor:pointer; width:26px; height:26px; border-radius:5px; display:flex; align-items:center; justify-content:center; font-size:12.5px; }
   /* 배경이 카드색(파스텔·기본·다크)마다 달라 고정 회색이 안 통한다 — 글자색에서 섞어 낸다 */
