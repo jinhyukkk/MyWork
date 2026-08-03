@@ -53,6 +53,8 @@ export function openDb(file = path.join(ROOT, 'data', 'mywork.db')) {
       archived   INTEGER NOT NULL DEFAULT 0,    -- 1이면 모든 뷰·통계에서 빠진다 (삭제 아님, 복원 가능)
       -- 상위 태스크(Jira 하위 태스크). 지우면 하위는 남고 연결만 끊긴다 — 삭제 버튼에 확인이 없어 CASCADE는 위험하다
       parent_id  INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+      -- 완료로 '넘어간' 시각. 되돌리면 NULL이 된다. 없으면(구버전 행) 마감일을 근사치로 쓴다
+      done_at    TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
     );
     CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due);
@@ -91,6 +93,11 @@ function migrate(db) {
   if (!cols.includes('parent_id')) {
     // ADD COLUMN + REFERENCES는 기본값이 NULL일 때만 허용된다
     db.exec('ALTER TABLE tasks ADD COLUMN parent_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL');
+  }
+  if (!cols.includes('done_at')) {
+    // 기존 완료분은 NULL로 남긴다 — 마감일로 채워 넣으면 «실제로 끝낸 시각»을 지어내는 셈이다.
+    // 읽는 쪽이 COALESCE로 마감일을 대신 쓴다.
+    db.exec('ALTER TABLE tasks ADD COLUMN done_at TEXT');
   }
   // 인덱스는 컬럼이 갖춰진 뒤에 — CREATE TABLE 블록에 두면 구버전 표에서 컬럼보다 먼저 실행된다
   db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)');

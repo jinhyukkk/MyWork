@@ -19,8 +19,16 @@ const isDone = (s) => S.doneSet.has(s);
 // done 플래그와 같은 이유로, 이름을 바꾸거나 등급을 늘려도 동작이 유지된다.
 const isTop = (p) => p === S.priorities[0];
 const topBadge = (p) => isTop(p) ? `<b class="hi-badge" style="background:${PR_COLOR(p)}1A;color:${PR_COLOR(p)}">${esc(p)}</b>` : '';
-/** 우선순위 우선, 같으면 마감일 순. 목록 정렬을 뺀 자리를 이 기본 정렬이 대신한다. */
-const byPriority = (a, b) => PR_RANK(a.priority) - PR_RANK(b.priority) || a.due.localeCompare(b.due);
+/** 반복 계열 식별자. 회차는 별도 태스크로 복사될 뿐 계열 id가 없어서 주기+제목으로 묶는다. */
+const seriesKey = (t) => `${t.repeat_days} ${t.title}`;
+/**
+ * 그 태스크가 「걸려 있는 날」 — 끝난 건은 실제로 끝낸 날, 나머지는 마감일.
+ * 표시(dueMeta)와 정렬이 같은 값을 봐야 완료 행이 화면에 보이는 날짜와 다른 자리에 앉지 않는다.
+ * done_at이 없는 구버전 완료 행은 예전처럼 마감일이 근사치다.
+ */
+const endDate = (t) => (isDone(t.status) && t.done_at ? t.done_at.slice(0, 10) : t.due);
+/** 우선순위 우선, 같으면 날짜 순. 목록의 우선순위 정렬을 뺀 자리를 이 기본 정렬이 대신한다. */
+const byPriority = (a, b) => PR_RANK(a.priority) - PR_RANK(b.priority) || endDate(a).localeCompare(endDate(b));
 
 // 상하위 관계는 1단계뿐이라 인덱스 없이 훑는다 (개인용 규모 — 수십~수백 건)
 const taskById = (id) => S.tasks.find((t) => t.id === id);
@@ -52,6 +60,7 @@ const S = {
   modal: null, archive: null, newSub: '', dragId: null, dragSub: null, dragOpt: null, dragOptKind: null, error: '',
   reSel: null, // 지연 일괄 재조정 선택. null = 전부 선택(기본값)
   pending: null, // 되돌리기 대기 중인 삭제 { id, title, timer }
+  openSeries: new Set(), // 이전 회차를 펼쳐 둔 반복 계열
 };
 
 // ── API ──────────────────────────────────────────────
@@ -120,7 +129,11 @@ const lateSelected = () => lateOpen().filter((t) => !S.reSel || S.reSel.has(t.id
 function dueMeta(t) {
   const diff = Math.round((parseD(t.due) - parseD(TODAY)) / DAY);
   const short = md(t.due);
-  if (isDone(t.status)) return { color: '#9AA2AD', text: `${short} 완료`, short, diff };
+  // 완료 건은 마감일 대신 실제로 끝낸 날을 보여준다 — 지금까지는 마감일에 «완료»만 붙여 놓아 사실과 달랐다
+  if (isDone(t.status)) {
+    const at = md(endDate(t));
+    return { color: '#9AA2AD', text: `${at} 완료`, short: at, diff };
+  }
   if (diff < 0) return { color: '#D64545', text: `${short} (${-diff}일 지연)`, short: `${short} ⚠`, diff };
   if (diff === 0) return { color: '#D64545', text: `${short} (오늘 마감)`, short: `${short} 오늘`, diff };
   if (diff <= 3) return { color: '#D98200', text: `${short} (D-${diff})`, short: `${short} D-${diff}`, diff };
@@ -245,13 +258,32 @@ function viewList(list) {
   const sorted = list.slice().sort((a, b) => {
     const k = S.sortKey;
     let av, bv;
-    if (k === 'status') { av = S.statuses.indexOf(a.status); bv = S.statuses.indexOf(b.status); }
+    if (k === 'due') { av = endDate(a); bv = endDate(b); } // 완료 행은 보이는 값(완료일)으로 줄 세운다
+    else if (k === 'status') { av = S.statuses.indexOf(a.status); bv = S.statuses.indexOf(b.status); }
     else { av = String(a[k] ?? ''); bv = String(b[k] ?? ''); }
     return (av < bv ? -1 : av > bv ? 1 : 0) * S.sortDir;
   });
 
   const head = COLS.map((c) => `<button data-act="sort" data-key="${c.key}">
     <span>${c.label}</span><span class="arrow">${S.sortKey === c.key && c.key ? (S.sortDir === 1 ? '▲' : '▼') : ''}</span></button>`).join('');
+
+  // 반복 태스크는 완료 회차가 같은 제목으로 쌓인다 — 최신 완료 회차만 남기고 이전 것을 접는다.
+  // 계열 식별자는 제목+주기다. 회차마다 별도 태스크로 복사될 뿐 계열 id가 없기 때문이며,
+  // 어느 회차의 제목을 고치면 그 건은 계열에서 떨어져 나온다.
+  const rounds = new Map();
+  for (const t of sorted) {
+    if (!(t.repeat_days > 0) || !isDone(t.status)) continue;
+    const key = seriesKey(t);
+    rounds.set(key, [...(rounds.get(key) ?? []), t]);
+  }
+  const folds = new Map(); // 최신 회차 id → 접힌 건수
+  const folded = new Set(); // 접혀서 안 보이는 행
+  for (const [key, list] of rounds) {
+    if (list.length < 2) continue;
+    const [latest, ...older] = list.slice().sort((a, b) => b.due.localeCompare(a.due));
+    folds.set(latest.id, older.length);
+    if (!S.openSeries.has(key)) older.forEach((t) => folded.add(t.id));
+  }
 
   // 하위 태스크는 상위 바로 아래에 붙인다. 상위가 필터에 걸려 안 보이면 제자리에 그대로 둔다.
   const kids = new Map();
@@ -260,14 +292,14 @@ function viewList(list) {
   const ordered = sorted.flatMap((t) =>
     (t.parent_id && shown.has(t.parent_id)) ? [] : [t, ...(kids.get(t.id) ?? [])]);
 
-  const rows = ordered.map((t) => {
+  const rows = ordered.filter((t) => !folded.has(t.id)).map((t) => {
     const dm = dueMeta(t), done = isDone(t.status), p = checklist(t), c = childProgress(t.id);
     // 하위 표시 색은 상위의 분류 색을 따른다 — 상위가 지워졌거나 보관됐으면 CAT_COLOR의 기본 회색
     const sub = t.parent_id ? `--sub:${CAT_COLOR(taskById(t.parent_id)?.category)}` : '';
     return `<div class="grid-row trow">
       <div class="main ${t.parent_id ? 'is-sub' : ''}" style="${sub}" data-act="open" data-id="${t.id}">
         <span class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? '#9AA2AD' : '#14161A'}">${t.parent_id ? '<span class="sub-mark">↳</span>' : ''}${done ? '' : topBadge(t.priority)}${esc(t.title)}</span>
-        <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${c.total ? `<b class="sb-badge">⑂ ${c.done}/${c.total}</b>` : ''}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${esc(t.memo || '—')}</span>
+        <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${folds.has(t.id) ? `<b class="fold-badge" data-act="fold" data-id="${t.id}">${S.openSeries.has(seriesKey(t)) ? '− 이전 회차 접기' : `＋ 이전 회차 ${folds.get(t.id)}건`}</b>` : ''}${c.total ? `<b class="sb-badge">⑂ ${c.done}/${c.total}</b>` : ''}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${esc(t.memo || '—')}</span>
       </div>
       <div class="cell"><span class="chip" style="background:${TYPE_BG(t.type)};color:${TYPE_COLOR(t.type)}">${esc(t.type)}</span></div>
       <div class="cell"><span class="chip" style="background:${STATUS_BG(t.status)};color:${STATUS_COLOR(t.status)}">${esc(t.status)}</span></div>
@@ -805,6 +837,11 @@ document.addEventListener('click', (e) => {
       await Promise.all(targets.map((t) => send(`/api/tasks/${t.id}`, 'PATCH', { due: to })));
       S.reSel = null;
     });
+  }
+  if (act === 'fold') {
+    const key = seriesKey(taskById(Number(id)));
+    S.openSeries.has(key) ? S.openSeries.delete(key) : S.openSeries.add(key);
+    return render();
   }
   if (act === 'open') return openTask(id);
   if (act === 'new') return openNew(el.dataset.status);

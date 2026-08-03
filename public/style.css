@@ -186,6 +186,9 @@
   .ck-n { font-size:10.5px; color:#6B7280; font-variant-numeric:tabular-nums; font-weight:600; }
   .ck-badge { font-size:10.5px; color:#2F6FED; background:#EAF0FE; padding:1px 5px; border-radius:3px; font-weight:600; margin-right:6px; font-variant-numeric:tabular-nums; }
   .rp-badge { font-size:10.5px; color:#D98200; background:#FCF1E0; padding:1px 5px; border-radius:3px; font-weight:600; margin-right:6px; }
+  /* 접힌 이전 회차를 여는 배지 — 유일하게 눌리는 배지라 테두리로 구분한다 */
+  .fold-badge { cursor:pointer; font-size:10.5px; color:#5A6270; background:#fff; border:1px solid #DDE1E7; padding:0 5px; border-radius:3px; font-weight:600; margin-right:6px; }
+  .fold-badge:hover { border-color:#2F6FED; color:#2F6FED; }
   /* ── 상하위 태스크 ── */
   /* 색은 고정하지 않는다 — 유형·분류 색은 사용자가 바꾸므로 어떤 값을 박아도 언젠가 겹친다.
      하위 표시는 상위 태스크의 분류 색을 --sub로 물려받고, 구분은 색이 아니라 형태(세로선·↳ 칩)가 맡는다. */

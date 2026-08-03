@@ -21,6 +21,8 @@ const localToday = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+/** 완료 시각. created_at과 같은 형식('YYYY-MM-DD HH:MM:SS')을 쓰려고 SQLite에 맡긴다. */
+const stamp = (db) => db.prepare("SELECT datetime('now','localtime') t").get().t;
 
 // ── 설정 항목(업무유형·진행상황·우선순위) ──────────────
 export const KINDS = ['type', 'status', 'priority', 'category'];
@@ -245,17 +247,22 @@ export function updateTask(db, id, body) {
   const parent = pickParent(db, body, cur.id);
   if (parent.error) return fail(parent.error);
   if ('value' in parent) data.parent_id = parent.value;
-  const keys = Object.keys(data);
-  if (!keys.length) return ok(getTask(db, cur.id));
+  if (!Object.keys(data).length) return ok(getTask(db, cur.id));
   const merged = { ...cur, ...data };
   if (merged.start > merged.due) return fail('시작일이 마감일보다 늦습니다');
+
+  // 완료로 '넘어가는' 순간만 본다 — 완료 시각 기록과 다음 회차 생성이 같은 판정을 쓴다.
+  // 이미 완료된 건을 다시 저장해도 시각이 밀리지 않고, 되돌리면 지워진다.
+  const done = doneStatuses(db);
+  const wasDone = done.has(cur.status), nowDone = done.has(merged.status);
+  if (wasDone !== nowDone) data.done_at = nowDone ? stamp(db) : null;
+
+  const keys = Object.keys(data);
   db.prepare(`UPDATE tasks SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE id = ?`)
     .run(...keys.map((k) => data[k]), cur.id);
 
   const updated = getTask(db, cur.id);
-  // 완료로 '넘어간' 순간에만 다음 회차를 만든다. 이미 완료된 건을 또 고칠 때는 생기지 않는다.
-  const done = doneStatuses(db);
-  if (!done.has(cur.status) && done.has(updated.status)) {
+  if (!wasDone && nowDone) {
     const next = spawnNext(db, updated);
     if (next) updated.next = { id: next.id, due: next.due };
   }
@@ -268,16 +275,17 @@ export function deleteTask(db, id) {
 }
 
 /**
- * 마감일이 before 이전인 완료 태스크를 보관한다. 되돌릴 수 있도록 삭제가 아닌 플래그.
- * 기준을 '완료 시각'이 아니라 마감일로 잡는 이유는 완료 시각을 저장하지 않기 때문 —
- * 완료된 태스크에서는 마감일이 실제로 끝낸 시점의 근사치다.
+ * before 이전에 끝낸 완료 태스크를 보관한다. 되돌릴 수 있도록 삭제가 아닌 플래그.
+ * 기준은 완료 시각(done_at)의 날짜 부분이고, 그게 없는 구버전 행에서만 마감일을 근사치로 쓴다.
  */
+const ENDED = "COALESCE(substr(done_at, 1, 10), due)";
+
 export function archiveCompleted(db, before) {
   if (!isDate(before)) return fail('before는 YYYY-MM-DD 형식이어야 합니다');
   const done = [...doneStatuses(db)];
   if (!done.length) return fail('완료로 표시된 진행상황이 없습니다');
   const { changes } = db
-    .prepare(`UPDATE tasks SET archived = 1 WHERE archived = 0 AND due <= ? AND status IN (${done.map(() => '?').join(',')})`)
+    .prepare(`UPDATE tasks SET archived = 1 WHERE archived = 0 AND ${ENDED} <= ? AND status IN (${done.map(() => '?').join(',')})`)
     .run(before, ...done);
   return ok({ archived: Number(changes), before });
 }
@@ -288,7 +296,7 @@ export function countArchivable(db, before) {
   const done = [...doneStatuses(db)];
   if (!done.length) return 0;
   return db
-    .prepare(`SELECT COUNT(*) n FROM tasks WHERE archived = 0 AND due <= ? AND status IN (${done.map(() => '?').join(',')})`)
+    .prepare(`SELECT COUNT(*) n FROM tasks WHERE archived = 0 AND ${ENDED} <= ? AND status IN (${done.map(() => '?').join(',')})`)
     .get(before, ...done).n;
 }
 

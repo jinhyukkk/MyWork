@@ -37,7 +37,7 @@ const REPEAT = {
 const TOOLS = [
   {
     name: 'list_tasks',
-    description: '태스크 목록을 조회한다. 필터를 겹쳐 쓸 수 있고, 각 태스크에는 체크리스트(subtasks)가 함께 들어온다.',
+    description: '태스크 목록을 조회한다. 필터를 겹쳐 쓸 수 있고, 각 태스크에는 체크리스트(subtasks)와 완료 시각(done_at, 미완료면 null)이 함께 들어온다.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -134,7 +134,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        before_days: { type: 'integer', minimum: 0, description: '오늘 기준 며칠 이전 마감분까지 보관할지 (기본 30)' },
+        before_days: { type: 'integer', minimum: 0, description: '오늘 기준 며칠 이전에 끝낸 것까지 보관할지 (기본 30). 기준은 완료 시각이며, 없는 구버전 건은 마감일' },
         before: str('직접 날짜 지정 YYYY-MM-DD. before_days보다 우선한다'),
         dry_run: { type: 'boolean', description: 'true면 대상 건수만 반환하고 보관하지 않는다' },
       },

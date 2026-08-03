@@ -253,6 +253,46 @@ test('보관 — 오래된 완료분만 빠지고 되돌릴 수 있다', async (
   }
 });
 
+test('완료 시각(done_at) — 전환 순간에만 찍히고 보관 기준이 된다', async (t) => {
+  const db = openDb(':memory:');
+  const srv = createApp(db).listen(0);
+  t.after(() => srv.close());
+  const b = `http://localhost:${srv.address().port}`;
+  const c = (p, method = 'GET', body) =>
+    fetch(b + p, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
+
+  const today = new Date();
+  const TODAY = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+  const task = await (await c('/api/tasks', 'POST', {
+    title: '완료시각', type: '운영', status: '시작 전', category: '기타', priority: 'Medium',
+    start: '2025-03-01', due: '2025-03-05',
+  })).json();
+  assert.equal(task.done_at, null, '미완료는 비어 있다');
+
+  // 완료로 넘어가는 순간 찍힌다
+  const done = await (await c(`/api/tasks/${task.id}`, 'PATCH', { status: '완료' })).json();
+  assert.equal(done.done_at?.slice(0, 10), TODAY, '전환 시각은 오늘');
+
+  // 이미 완료된 건을 다시 저장해도 밀리지 않는다
+  const again = await (await c(`/api/tasks/${task.id}`, 'PATCH', { memo: '수정' })).json();
+  assert.equal(again.done_at, done.done_at, '재저장으로 시각이 갱신되지 않는다');
+
+  // 되돌리면 지워진다
+  const back = await (await c(`/api/tasks/${task.id}`, 'PATCH', { status: '진행 중' })).json();
+  assert.equal(back.done_at, null, '완료를 풀면 시각도 사라진다');
+
+  // 다시 완료 → 마감일(2025-03-05)은 한참 지났지만 오늘 끝냈으므로 보관 대상이 아니다
+  await c(`/api/tasks/${task.id}`, 'PATCH', { status: '완료' });
+  assert.equal((await (await c('/api/archivable?before=2026-01-01')).json()).count, 0,
+    '마감일이 아니라 완료 시각으로 판단한다');
+
+  // done_at이 없는 구버전 행은 마감일로 갈음한다
+  db.prepare('UPDATE tasks SET done_at = NULL WHERE id = ?').run(task.id);
+  assert.equal((await (await c('/api/archivable?before=2026-01-01')).json()).count, 1,
+    'done_at이 없으면 마감일을 근사치로 쓴다');
+});
+
 test('체크리스트 CRUD + 태스크 삭제 시 CASCADE', async (t) => {
   const db = openDb(':memory:');
   const srv = createApp(db).listen(0);
