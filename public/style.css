@@ -80,7 +80,7 @@
   .brief-h .btn-sm { height:26px; line-height:24px; padding:0 10px; font-size:11.5px; }
 
   /* ── 목록 ── */
-  .grid-row { min-width:880px; display:grid; grid-template-columns:minmax(240px,1fr) 90px 92px 130px 88px 108px 108px 40px; }
+  .grid-row { min-width:800px; display:grid; grid-template-columns:minmax(240px,1fr) 90px 92px 130px 108px 108px 40px; }
   .thead { background:#FAFBFC; border-bottom:1px solid #E3E6EB; font-size:11.5px; font-weight:650; color:#5A6270; }
   .thead button { all:unset; cursor:pointer; padding:10px 12px; display:flex; align-items:center; gap:4px; }
   .thead button:hover { color:#14161A; }
@@ -116,8 +116,7 @@
   .bcard .tt { font-size:13px; font-weight:550; line-height:1.4; text-wrap:pretty; }
   .bcard .tags { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
   .bcard .tags span { font-size:10.5px; padding:2px 6px; border-radius:4px; font-weight:600; white-space:nowrap; }
-  .bcard .foot { display:flex; align-items:center; justify-content:space-between; border-top:1px solid #F2F4F7; padding-top:7px; }
-  .bcard .foot .pr { font-size:11px; font-weight:700; letter-spacing:.03em; }
+  .bcard .foot { display:flex; align-items:center; justify-content:flex-end; border-top:1px solid #F2F4F7; padding-top:7px; }
   .bcard .foot .du { font-size:11px; font-variant-numeric:tabular-nums; }
   .add-btn { all:unset; cursor:pointer; padding:8px; text-align:center; font-size:12px; color:#7A828E; border-radius:6px; border:1px dashed #C9CFD8; }
   .add-btn:hover { background:#E4E8EE; color:#2F6FED; }
@@ -200,6 +199,15 @@
   .bcard .parent-line:hover { filter:brightness(1.12); }
   /* 상위 쪽 배지는 건수 정보라 색이 필요 없다 — 무채색으로 두어 분류 색과 경쟁하지 않게 */
   .sb-badge { font-size:10.5px; color:#3C424C; background:#E9ECF1; padding:1px 5px; border-radius:3px; font-weight:700; margin-right:6px; font-variant-numeric:tabular-nums; }
+  /* 최상위 우선순위만 붙는 배지 — 색은 설정값을 그대로 쓴다(배경은 10% 틴트) */
+  .hi-badge { font-size:10px; padding:1px 5px; border-radius:3px; font-weight:700; margin-right:6px; letter-spacing:.02em; vertical-align:1px; }
+
+  /* ── 삭제 되돌리기 토스트 ── */
+  .toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:60; display:flex; align-items:center; gap:14px;
+           background:#14161A; color:#F4F5F7; font-size:12.5px; padding:11px 14px; border-radius:8px; box-shadow:0 8px 24px rgba(20,22,26,.28); }
+  .toast .t { max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .toast button { all:unset; cursor:pointer; font-size:12.5px; font-weight:650; color:#8FB4FF; }
+  .toast button:hover { color:#fff; text-decoration:underline; }
   .ck-hint { font-size:12px; color:#98A0AB; padding:6px 2px; }
   .ck-list { display:flex; flex-direction:column; }
   .ck-item { display:flex; align-items:center; gap:9px; padding:5px 2px; border-bottom:1px solid #F4F6F8; }

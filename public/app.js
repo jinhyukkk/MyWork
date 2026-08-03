@@ -15,6 +15,12 @@ const CAT_COLOR = (c) => S.opt.category.get(c)?.color ?? '#6B7280';
 const PR_COLOR = (p) => S.opt.priority.get(p)?.color ?? '#6B7280';
 const PR_RANK = (p) => S.opt.priority.get(p)?.sort ?? 99;
 const isDone = (s) => S.doneSet.has(s);
+// 우선순위는 «가장 높은 것»만 화면에 드러낸다. 이름('High')이 아니라 설정 순서의 첫 항목이 기준 —
+// done 플래그와 같은 이유로, 이름을 바꾸거나 등급을 늘려도 동작이 유지된다.
+const isTop = (p) => p === S.priorities[0];
+const topBadge = (p) => isTop(p) ? `<b class="hi-badge" style="background:${PR_COLOR(p)}1A;color:${PR_COLOR(p)}">${esc(p)}</b>` : '';
+/** 우선순위 우선, 같으면 마감일 순. 목록 정렬을 뺀 자리를 이 기본 정렬이 대신한다. */
+const byPriority = (a, b) => PR_RANK(a.priority) - PR_RANK(b.priority) || a.due.localeCompare(b.due);
 
 // 상하위 관계는 1단계뿐이라 인덱스 없이 훑는다 (개인용 규모 — 수십~수백 건)
 const taskById = (id) => S.tasks.find((t) => t.id === id);
@@ -45,6 +51,7 @@ const S = {
   hideDone: false,
   modal: null, archive: null, newSub: '', dragId: null, dragSub: null, dragOpt: null, dragOptKind: null, error: '',
   reSel: null, // 지연 일괄 재조정 선택. null = 전부 선택(기본값)
+  pending: null, // 되돌리기 대기 중인 삭제 { id, title, timer }
 };
 
 // ── API ──────────────────────────────────────────────
@@ -99,6 +106,7 @@ async function mutate(fn) {
 function filtered() {
   const q = S.query.trim().toLowerCase();
   return S.tasks.filter((t) =>
+    t.id !== S.pending?.id && // 삭제 대기 중 — 되돌리기 시간이 끝날 때까지만 감춘다
     (S.fCategory === 'all' || t.category === S.fCategory) &&
     (S.fType === 'all' || t.type === S.fType) &&
     (S.fPriority === 'all' || t.priority === S.fPriority) &&
@@ -123,11 +131,10 @@ function dueMeta(t) {
 function viewSummary(list) {
   const cnt = (st) => list.filter((t) => t.status === st).length;
   const open = list.filter((t) => !isDone(t.status));
-  const byDue = (a, b) => a.due.localeCompare(b.due);
-  // today_brief(MCP)와 같은 3분류 — 지연 / 오늘 마감 / 7일 내 예정
-  const late = open.filter((t) => t.due < TODAY).sort(byDue);
-  const dueToday = open.filter((t) => t.due === TODAY).sort(byDue);
-  const week = open.filter((t) => t.due > TODAY && t.due <= shift(today, 7)).sort(byDue);
+  // today_brief(MCP)와 같은 3분류 — 지연 / 오늘 마감 / 7일 내 예정. 각 구간 안에서는 우선순위가 앞선다.
+  const late = open.filter((t) => t.due < TODAY).sort(byPriority);
+  const dueToday = open.filter((t) => t.due === TODAY).sort(byPriority);
+  const week = open.filter((t) => t.due > TODAY && t.due <= shift(today, 7)).sort(byPriority);
   const overdue = late.length;
   const soon = dueToday.length + week.length;
   const items = checklistTotals(list);
@@ -169,8 +176,8 @@ function viewSummary(list) {
   const briefRow = (t, box = '') => {
     const dm = dueMeta(t);
     return `<div class="up-row" data-act="open" data-id="${t.id}">${box}
-      <span class="dot" style="background:${PR_COLOR(t.priority)}"></span>
-      <span class="t">${esc(t.title)}</span>
+      <span class="dot" style="background:${CAT_COLOR(t.category)}"></span>
+      <span class="t">${topBadge(t.priority)}${esc(t.title)}</span>
       <span class="c">${esc(t.category)}</span>
       <span class="d" style="color:${dm.color}">${dm.text}</span></div>`;
   };
@@ -226,9 +233,11 @@ function viewSummary(list) {
   </div>`;
 }
 
+// 우선순위 전용 컬럼은 없앴다 — 값이 거의 한 등급에 몰려 정렬·스캔에 쓸모가 없었다.
+// 대신 가장 높은 등급만 제목 앞 배지로 드러낸다.
 const COLS = [
   { key: 'title', label: '제목' }, { key: 'type', label: '유형' }, { key: 'status', label: '상태' },
-  { key: 'category', label: '분류' }, { key: 'priority', label: '우선순위' },
+  { key: 'category', label: '분류' },
   { key: 'start', label: '시작일' }, { key: 'due', label: '마감일' }, { key: '', label: '' },
 ];
 
@@ -236,8 +245,7 @@ function viewList(list) {
   const sorted = list.slice().sort((a, b) => {
     const k = S.sortKey;
     let av, bv;
-    if (k === 'priority') { av = PR_RANK(a.priority); bv = PR_RANK(b.priority); }
-    else if (k === 'status') { av = S.statuses.indexOf(a.status); bv = S.statuses.indexOf(b.status); }
+    if (k === 'status') { av = S.statuses.indexOf(a.status); bv = S.statuses.indexOf(b.status); }
     else { av = String(a[k] ?? ''); bv = String(b[k] ?? ''); }
     return (av < bv ? -1 : av > bv ? 1 : 0) * S.sortDir;
   });
@@ -258,13 +266,12 @@ function viewList(list) {
     const sub = t.parent_id ? `--sub:${CAT_COLOR(taskById(t.parent_id)?.category)}` : '';
     return `<div class="grid-row trow">
       <div class="main ${t.parent_id ? 'is-sub' : ''}" style="${sub}" data-act="open" data-id="${t.id}">
-        <span class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? '#9AA2AD' : '#14161A'}">${t.parent_id ? '<span class="sub-mark">↳</span>' : ''}${esc(t.title)}</span>
+        <span class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? '#9AA2AD' : '#14161A'}">${t.parent_id ? '<span class="sub-mark">↳</span>' : ''}${done ? '' : topBadge(t.priority)}${esc(t.title)}</span>
         <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${c.total ? `<b class="sb-badge">⑂ ${c.done}/${c.total}</b>` : ''}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${esc(t.memo || '—')}</span>
       </div>
       <div class="cell"><span class="chip" style="background:${TYPE_BG(t.type)};color:${TYPE_COLOR(t.type)}">${esc(t.type)}</span></div>
       <div class="cell"><span class="chip" style="background:${STATUS_BG(t.status)};color:${STATUS_COLOR(t.status)}">${esc(t.status)}</span></div>
       <div class="cell" style="color:#5A6270">${esc(t.category)}</div>
-      <div class="cell" style="color:${PR_COLOR(t.priority)};font-weight:600;font-size:11.5px">${t.priority}</div>
       <div class="cell" style="color:#6B7280;font-variant-numeric:tabular-nums">${md(t.start)}</div>
       <div class="cell" style="color:${dm.color};font-variant-numeric:tabular-nums;font-weight:550">${dm.text}</div>
       <div class="cell" style="padding:0 8px;display:flex;justify-content:center">
@@ -283,8 +290,7 @@ function viewBoard(list) {
   const cols = S.meta.statuses;
   return `<div class="board" style="grid-template-columns:repeat(${cols.length},minmax(220px,1fr))">${cols.map((o) => {
     const st = o.name;
-    const tasks = list.filter((t) => t.status === st)
-      .sort((a, b) => PR_RANK(a.priority) - PR_RANK(b.priority) || a.due.localeCompare(b.due));
+    const tasks = list.filter((t) => t.status === st).sort(byPriority);
     return `<div class="bcol ${S.dragId ? 'drag' : ''}" data-drop="${esc(st)}" data-opt="${o.id}">
       <div class="head" draggable="true" title="드래그해서 열 순서 변경">
         <span class="ck-grip">⠿</span>
@@ -297,7 +303,7 @@ function viewBoard(list) {
         return `<div class="bcard ${parent ? 'is-sub' : ''} ${S.dragId === t.id ? 'dragging' : ''}" draggable="true"
              style="${parent ? `--sub:${CAT_COLOR(parent.category)}` : ''}" data-act="open" data-id="${t.id}">
           ${parent ? `<div class="parent-line" data-act="open" data-id="${parent.id}" title="상위 태스크: ${esc(parent.title)}">↳ ${esc(parent.title)}</div>` : ''}
-          <div class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? '#8D95A0' : '#14161A'}">${esc(t.title)}</div>
+          <div class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? '#8D95A0' : '#14161A'}">${done ? '' : topBadge(t.priority)}${esc(t.title)}</div>
           <div class="tags">
             <span style="background:${TYPE_BG(t.type)};color:${TYPE_COLOR(t.type)}">${esc(t.type)}</span>
             <span style="background:${CAT_COLOR(t.category)}1A;color:${CAT_COLOR(t.category)};font-weight:400">${esc(t.category)}</span>
@@ -308,7 +314,6 @@ function viewBoard(list) {
             <div class="prog"><div class="fill" style="width:${p.pct}%"></div></div>
             <span class="ck-n">${p.done}/${p.total}</span></div>` : ''}
           <div class="foot">
-            <span class="pr" style="color:${PR_COLOR(t.priority)}">${t.priority}</span>
             <span class="du" style="color:${dm.color}">${dm.short}</span>
           </div></div>`;
       }).join('')}
@@ -379,7 +384,7 @@ function viewTimeline(list) {
     const range = `${md(t.start)} – ${md(t.due)}`;
     return `<div class="g-row">
       <div class="fix" data-act="open" data-id="${t.id}">
-        <span class="dot" style="background:${PR_COLOR(t.priority)}"></span><span>${esc(t.title)}</span>
+        <span class="dot" style="background:${CAT_COLOR(t.category)}"></span><span>${esc(t.title)}</span>
       </div>
       <div class="g-track">
         <div class="today" style="left:${todayLeft >= 0 && todayLeft <= 100 ? todayLeft : -10}%"></div>
@@ -605,14 +610,15 @@ function render() {
   const ft = document.getElementById('f-type');
   ft.innerHTML = `<option value="all">유형: 전체</option>${S.types.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}`;
   ft.value = S.fType;
+  // 우선순위 필터는 3지 선택 대신 «최상위 등급만» 토글이다 — 등급 이름은 설정에서 온다
   const fp = document.getElementById('f-priority');
-  fp.innerHTML = `<option value="all">우선순위: 전체</option>${S.priorities.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join('')}`;
-  fp.value = S.fPriority;
+  fp.textContent = `${S.priorities[0] ?? '우선순위'}만`;
+  fp.classList.toggle('on', S.fPriority !== 'all');
   document.getElementById('hide-done').classList.toggle('on', S.hideDone);
 
   const renderers = { summary: viewSummary, list: viewList, board: viewBoard, calendar: viewCalendar, timeline: viewTimeline };
   document.getElementById('viewport').innerHTML = renderers[S.view](list);
-  document.getElementById('modal-root').innerHTML = viewModal();
+  document.getElementById('modal-root').innerHTML = viewModal() + viewToast();
   // 지정된 경우에만 포커스 — 체크리스트 조작 중 제목으로 커서가 튀지 않게
   if (S.modal && S.focusId) { document.getElementById(S.focusId)?.focus(); S.focusId = null; }
 }
@@ -724,6 +730,47 @@ async function openChild() {
   openNew(null, parentId);
 }
 
+// ── 삭제 되돌리기 ────────────────────────────────────
+// 삭제 요청을 바로 보내지 않는다. 화면에서만 감춰 두고 UNDO_MS 뒤에 확정한다 —
+// 서버도 스키마도 건드리지 않고 «되돌리기»가 성립하고, 그때까지는 체크리스트 CASCADE도 일어나지 않는다.
+const UNDO_MS = 5000;
+
+/** 대기 중인 삭제를 서버로 확정. 페이지를 떠나는 중에도 불리므로 keepalive로 보낸다. */
+function commitDelete(reloadAfter = true) {
+  const p = S.pending;
+  if (!p) return;
+  clearTimeout(p.timer);
+  S.pending = null;
+  const sent = api(`/api/tasks/${p.id}`, { method: 'DELETE', keepalive: true });
+  if (reloadAfter) sent.then(reload).catch((e) => { S.error = e.message; render(); });
+}
+
+function requestDelete(id) {
+  commitDelete(); // 앞선 대기건은 먼저 확정한다 — 토스트는 항상 하나만 띄운다
+  const t = taskById(Number(id));
+  if (!t) return;
+  S.pending = { id: t.id, title: t.title, timer: setTimeout(commitDelete, UNDO_MS) };
+  render();
+}
+
+function undoDelete() {
+  clearTimeout(S.pending?.timer);
+  S.pending = null;
+  render();
+}
+
+function viewToast() {
+  const p = S.pending;
+  if (!p) return '';
+  return `<div class="toast">
+    <span class="t">«${esc(p.title)}» 삭제됨</span>
+    <button data-act="undo">되돌리기</button>
+  </div>`;
+}
+
+// 뷰 전환이 전부 페이지 이동이라, 떠나기 전에 대기 중인 삭제를 흘려보낸다
+addEventListener('pagehide', () => commitDelete(false));
+
 // ── 이벤트 ───────────────────────────────────────────
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]');
@@ -761,8 +808,9 @@ document.addEventListener('click', (e) => {
   }
   if (act === 'open') return openTask(id);
   if (act === 'new') return openNew(el.dataset.status);
-  if (act === 'del') { e.stopPropagation(); return mutate(() => api(`/api/tasks/${id}`, { method: 'DELETE' })); }
-  if (act === 'del-modal') return mutate(async () => { await api(`/api/tasks/${S.modal.id}`, { method: 'DELETE' }); S.modal = null; });
+  if (act === 'del') { e.stopPropagation(); return requestDelete(id); }
+  if (act === 'del-modal') { const t = S.modal.id; S.modal = null; return requestDelete(t); }
+  if (act === 'undo') return undoDelete();
   if (act === 'save') return saveDraft();
   if (act === 'sub-add') return addSubtask();
   if (act === 'child-add') return openChild();
@@ -888,7 +936,10 @@ document.addEventListener('drop', (e) => {
 document.getElementById('q').addEventListener('input', (e) => { S.query = e.target.value; render(); });
 document.getElementById('f-category').addEventListener('change', (e) => { S.fCategory = e.target.value; render(); });
 document.getElementById('f-type').addEventListener('change', (e) => { S.fType = e.target.value; render(); });
-document.getElementById('f-priority').addEventListener('change', (e) => { S.fPriority = e.target.value; render(); });
+document.getElementById('f-priority').addEventListener('click', () => {
+  S.fPriority = S.fPriority === 'all' ? S.priorities[0] : 'all';
+  render();
+});
 document.getElementById('hide-done').addEventListener('click', () => { S.hideDone = !S.hideDone; render(); });
 document.getElementById('open-archive').addEventListener('click', openArchive);
 document.getElementById('open-settings').addEventListener('click', () => {
