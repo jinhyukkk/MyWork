@@ -7,9 +7,8 @@ const VIEWS = { summary: '요약', list: '목록', board: '보드', calendar: '�
 const KIND_LABEL = { status: '진행상황', category: '업무분류' };
 const META_KEY = { status: 'statuses', category: 'categories' };
 
-// 색상은 전부 설정(options)에서 온다. 배경은 같은 색의 10% 투명도 — 색을 두 번 고르지 않도록.
+// 색상은 전부 설정(options)에서 온다. 글자·배경은 CSS의 .tint가 --c 하나로 만든다 — 색을 두 번 고르지 않도록.
 const STATUS_COLOR = (s) => S.opt.status.get(s)?.color ?? '#6B7280';
-const STATUS_BG = (s) => `${STATUS_COLOR(s)}1A`;
 const CAT_COLOR = (c) => S.opt.category.get(c)?.color ?? '#6B7280';
 const isDone = (s) => S.doneSet.has(s);
 // «공이 남에게 있는» 상태. 마감이 지나도 지연으로 세지 않는다 — 내 차례가 아니기 때문.
@@ -359,7 +358,7 @@ function viewList(list) {
         <span class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? 'var(--text-4)' : 'var(--text)'}">${t.parent_id ? '<span class="sub-mark">↳</span>' : ''}${esc(t.title)}</span>
         <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${folds.has(t.id) ? `<b class="fold-badge" data-act="fold" data-id="${t.id}">${S.openSeries.has(seriesKey(t)) ? '− 이전 회차 접기' : `＋ 이전 회차 ${folds.get(t.id)}건`}</b>` : ''}${childBadge(c, t.id)}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${t.memo ? linkify(esc(t.memo)) : '—'}</span>
       </div>
-      <div class="cell"><span class="chip" style="background:${STATUS_BG(t.status)};color:${STATUS_COLOR(t.status)}">${esc(t.status)}</span></div>
+      <div class="cell"><span class="chip tint" style="--c:${STATUS_COLOR(t.status)}">${esc(t.status)}</span></div>
       <div class="cell" style="color:var(--text-3)">${esc(t.category)}</div>
       <div class="cell" style="color:${dm.color};font-variant-numeric:tabular-nums;font-weight:550">${dm.text}</div>
       <div class="cell" style="padding:0 8px;display:flex;justify-content:center">
@@ -393,7 +392,7 @@ function viewBoard(list) {
           ${parent ? `<div class="parent-line" data-act="open" data-id="${parent.id}" title="상위 태스크: ${esc(parent.title)}">↳ ${esc(parent.title)}</div>` : ''}
           <div class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? 'var(--text-4)' : 'var(--text)'}">${esc(t.title)}</div>
           <div class="tags">
-            <span style="background:${CAT_COLOR(t.category)}1A;color:${CAT_COLOR(t.category)};font-weight:400">${esc(t.category)}</span>
+            <span class="tint" style="--c:${CAT_COLOR(t.category)};font-weight:400">${esc(t.category)}</span>
             ${childBadge(c, t.id)}
             ${t.repeat_days ? `<span style="background:var(--warn-bg);color:var(--warn)">🔁 ${repeatLabel(t.repeat_days)}</span>` : ''}
           </div>
@@ -428,7 +427,7 @@ function viewCalendar(list) {
         <div style="display:flex;align-items:center;gap:5px">
           <span class="n" style="font-weight:${isToday ? 700 : 500};background:${isToday ? 'var(--accent)' : 'transparent'};color:${isToday ? 'var(--on-accent)' : !inMonth ? 'var(--text-4)' : d.getDay() === 0 ? 'var(--danger)' : d.getDay() === 6 ? 'var(--accent)' : 'var(--text-2)'}">${d.getDate()}</span>
         </div>
-        ${evts.map((t) => `<div class="ev" data-act="open" data-id="${t.id}" style="background:${CAT_COLOR(t.category)}1A;color:${CAT_COLOR(t.category)};border-left:3px solid ${CAT_COLOR(t.category)};text-decoration:${isDone(t.status) ? 'line-through' : 'none'}">${esc(t.title)}</div>`).join('')}
+        ${evts.map((t) => `<div class="ev tint" data-act="open" data-id="${t.id}" style="--c:${CAT_COLOR(t.category)};text-decoration:${isDone(t.status) ? 'line-through' : 'none'}">${esc(t.title)}</div>`).join('')}
       </div>`,
       empty: evts.length === 0,
     });
@@ -562,7 +561,7 @@ function projectHead(p) {
     <a class="pj-back" href="/project">‹ 프로젝트</a>
     <span class="dot" style="background:${CAT_COLOR(p.category)}"></span>
     <b data-act="open" data-id="${p.id}" style="cursor:pointer">${esc(p.title)}</b>
-    <span class="chip" style="background:${STATUS_BG(p.status)};color:${STATUS_COLOR(p.status)}">${esc(p.status)}</span>
+    <span class="chip tint" style="--c:${STATUS_COLOR(p.status)}">${esc(p.status)}</span>
     <span class="c">${esc(p.category)}</span>
     ${childBadge(c)}
     <div style="flex:1"></div>
@@ -604,7 +603,7 @@ function noteCard(n) {
     ${n.title ? `<div class="nt">${esc(n.title)}</div>` : ''}
     ${n.body ? `<div class="nb">${esc(n.body)}</div>` : ''}
     ${n.category || task ? `<div class="nfoot">
-      ${n.category ? `<span class="chip" style="background:${CAT_COLOR(n.category)}1A;color:${CAT_COLOR(n.category)}">${esc(n.category)}</span>` : ''}
+      ${n.category ? `<span class="chip tint" style="--c:${CAT_COLOR(n.category)}">${esc(n.category)}</span>` : ''}
       ${task ? `<span class="chip note-task" data-act="open" data-id="${task.id}" title="연결된 태스크 열기">✓ ${esc(task.title)}</span>` : ''}
     </div>` : ''}
     ${S.colorPick === n.id ? `<div class="note-swatches">${NOTE_COLORS.map((c) =>
@@ -721,7 +720,7 @@ function viewChildren(m) {
       const dm = dueMeta(t);
       return `<div class="ck-item" data-act="open" data-id="${t.id}" style="cursor:pointer">
         <span class="ck-t ${isDone(t.status) ? 'done' : ''}">${esc(t.title)}</span>
-        <span class="chip" style="background:${STATUS_BG(t.status)};color:${STATUS_COLOR(t.status)}">${esc(t.status)}</span>
+        <span class="chip tint" style="--c:${STATUS_COLOR(t.status)}">${esc(t.status)}</span>
         <span class="ck-n" style="color:${dm.color}">${dm.short}</span>
       </div>`;
     }).join('') || '<div class="ck-hint">하위 태스크가 없습니다.</div>'}</div>
