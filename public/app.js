@@ -173,12 +173,12 @@ function dueMeta(t) {
   // 완료 건은 마감일 대신 실제로 끝낸 날을 보여준다 — 지금까지는 마감일에 «완료»만 붙여 놓아 사실과 달랐다
   if (isDone(t.status)) {
     const at = md(endDate(t));
-    return { color: '#6B7280', text: `${at} 완료`, short: at, diff };
+    return { color: 'var(--text-4)', text: `${at} 완료`, short: at, diff };
   }
-  if (diff < 0) return { color: '#CE3E3E', text: `${short} (${-diff}일 지연)`, short: `${short} ⚠`, diff };
-  if (diff === 0) return { color: '#CE3E3E', text: `${short} (오늘 마감)`, short: `${short} 오늘`, diff };
-  if (diff <= 3) return { color: '#A05F00', text: `${short} (D-${diff})`, short: `${short} D-${diff}`, diff };
-  return { color: '#6B7280', text: `${short} (D-${diff})`, short, diff };
+  if (diff < 0) return { color: 'var(--danger)', text: `${short} (${-diff}일 지연)`, short: `${short} ⚠`, diff };
+  if (diff === 0) return { color: 'var(--danger)', text: `${short} (오늘 마감)`, short: `${short} 오늘`, diff };
+  if (diff <= 3) return { color: 'var(--warn)', text: `${short} (D-${diff})`, short: `${short} D-${diff}`, diff };
+  return { color: 'var(--text-4)', text: `${short} (D-${diff})`, short, diff };
 }
 
 // ── 뷰 ───────────────────────────────────────────────
@@ -198,11 +198,11 @@ function viewSummary(list) {
 
   const stats = [
     // 진척률 = 끝난 태스크 + 미완료 태스크의 체크된 항목. 완료 건수도 같이 보여 둘을 구분한다.
-    { label: '전체 태스크', value: list.length, color: '#14161A', hint: `진척률 ${weightedPct(list, isDone)}% · 완료 ${doneCnt}건` },
-    { label: '미완료', value: open.length, color: '#2A65E0',
+    { label: '전체 태스크', value: list.length, color: 'var(--text)', hint: `진척률 ${weightedPct(list, isDone)}% · 완료 ${doneCnt}건` },
+    { label: '미완료', value: open.length, color: 'var(--accent)',
       hint: openStatuses.map((s) => `${s} ${cnt(s)}`).join(' · ') || '없음' },
-    { label: '7일 내 마감', value: soon, color: '#A05F00', hint: '미완료 기준' },
-    { label: '지연', value: overdue, color: '#CE3E3E', hint: overdue ? '즉시 확인 필요' : '지연 없음' },
+    { label: '7일 내 마감', value: soon, color: 'var(--warn)', hint: '미완료 기준' },
+    { label: '지연', value: overdue, color: 'var(--danger)', hint: overdue ? '즉시 확인 필요' : '지연 없음' },
   ];
 
   // 스택바는 진행상황 설정을 그대로 따라간다 — 상태를 추가하면 막대에도 바로 반영된다
@@ -248,12 +248,12 @@ function viewSummary(list) {
   const brief = `<div class="card" style="padding:18px">
     <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px">
       <div class="card-t">오늘의 액션</div>
-      <div style="font-size:11.5px;color:#6B7280">지연 → 오늘 마감 → 7일 내 예정 · 지연은 선택해서 마감일을 한 번에 미룰 수 있습니다</div>
+      <div style="font-size:11.5px;color:var(--text-4)">지연 → 오늘 마감 → 7일 내 예정 · 지연은 선택해서 마감일을 한 번에 미룰 수 있습니다</div>
     </div>
-    ${overdue ? briefHead('지연', '#CE3E3E', overdue, reschedBtns)
+    ${overdue ? briefHead('지연', 'var(--danger)', overdue, reschedBtns)
       + late.map((t) => briefRow(t, `<input type="checkbox" data-act="resel" data-id="${t.id}" ${sel.has(t.id) ? 'checked' : ''}>`)).join('') : ''}
-    ${dueToday.length ? briefHead('오늘 마감', '#A05F00', dueToday.length) + dueToday.map((t) => briefRow(t)).join('') : ''}
-    ${week.length ? briefHead('예정 · 7일 내', '#2A65E0', week.length) + week.map((t) => briefRow(t)).join('') : ''}
+    ${dueToday.length ? briefHead('오늘 마감', 'var(--warn)', dueToday.length) + dueToday.map((t) => briefRow(t)).join('') : ''}
+    ${week.length ? briefHead('예정 · 7일 내', 'var(--accent)', week.length) + week.map((t) => briefRow(t)).join('') : ''}
     ${open.length ? '' : '<div class="empty">미완료 태스크가 없습니다.</div>'}
     ${laterCnt > 0 ? `<div class="ck-hint" style="padding-top:10px">7일 이후 마감 미완료 ${laterCnt}건</div>` : ''}
   </div>`;
@@ -267,7 +267,7 @@ function viewSummary(list) {
       <div class="card" style="padding:18px">
         <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:14px">
           <div class="card-t">업무분류별 현황</div>
-          <div style="font-size:11.5px;color:#6B7280">막대는 상태 · 진척은 체크리스트까지 반영</div>
+          <div style="font-size:11.5px;color:var(--text-4)">막대는 상태 · 진척은 체크리스트까지 반영</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:12px">${catStats.map((c) => `<div class="bar-row">
           <div class="top"><b>${esc(c.label)}</b><span>${c.count}건 · 완료 ${c.d} · 진척 ${c.pct}%</span></div>
@@ -344,13 +344,13 @@ function viewList(list) {
     const sub = t.parent_id ? `--sub:${CAT_COLOR(taskById(t.parent_id)?.category)}` : '';
     return `<div class="grid-row trow">
       <div class="main ${t.parent_id ? 'is-sub' : ''}" style="${sub}" data-act="open" data-id="${t.id}">
-        <span class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? '#6B7280' : '#14161A'}">${t.parent_id ? '<span class="sub-mark">↳</span>' : ''}${done ? '' : topBadge(t.priority)}${esc(t.title)}</span>
+        <span class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? 'var(--text-4)' : 'var(--text)'}">${t.parent_id ? '<span class="sub-mark">↳</span>' : ''}${done ? '' : topBadge(t.priority)}${esc(t.title)}</span>
         <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${folds.has(t.id) ? `<b class="fold-badge" data-act="fold" data-id="${t.id}">${S.openSeries.has(seriesKey(t)) ? '− 이전 회차 접기' : `＋ 이전 회차 ${folds.get(t.id)}건`}</b>` : ''}${childBadge(c)}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${esc(t.memo || '—')}</span>
       </div>
       <div class="cell"><span class="chip" style="background:${TYPE_BG(t.type)};color:${TYPE_COLOR(t.type)}">${esc(t.type)}</span></div>
       <div class="cell"><span class="chip" style="background:${STATUS_BG(t.status)};color:${STATUS_COLOR(t.status)}">${esc(t.status)}</span></div>
-      <div class="cell" style="color:#5A6270">${esc(t.category)}</div>
-      <div class="cell" style="color:#6B7280;font-variant-numeric:tabular-nums">${md(t.start)}</div>
+      <div class="cell" style="color:var(--text-3)">${esc(t.category)}</div>
+      <div class="cell" style="color:var(--text-4);font-variant-numeric:tabular-nums">${md(t.start)}</div>
       <div class="cell" style="color:${dm.color};font-variant-numeric:tabular-nums;font-weight:550">${dm.text}</div>
       <div class="cell" style="padding:0 8px;display:flex;justify-content:center">
         <button class="x-btn" data-act="del" data-id="${t.id}">×</button></div>
@@ -381,12 +381,12 @@ function viewBoard(list) {
         return `<div class="bcard ${parent ? 'is-sub' : ''} ${S.dragId === t.id ? 'dragging' : ''}" draggable="true"
              style="${parent ? `--sub:${CAT_COLOR(parent.category)}` : ''}" data-act="open" data-id="${t.id}">
           ${parent ? `<div class="parent-line" data-act="open" data-id="${parent.id}" title="상위 태스크: ${esc(parent.title)}">↳ ${esc(parent.title)}</div>` : ''}
-          <div class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? '#6B7280' : '#14161A'}">${done ? '' : topBadge(t.priority)}${esc(t.title)}</div>
+          <div class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? 'var(--text-4)' : 'var(--text)'}">${done ? '' : topBadge(t.priority)}${esc(t.title)}</div>
           <div class="tags">
             <span style="background:${TYPE_BG(t.type)};color:${TYPE_COLOR(t.type)}">${esc(t.type)}</span>
             <span style="background:${CAT_COLOR(t.category)}1A;color:${CAT_COLOR(t.category)};font-weight:400">${esc(t.category)}</span>
             ${childBadge(c)}
-            ${t.repeat_days ? `<span style="background:#FCF1E0;color:#A05F00">🔁 ${repeatLabel(t.repeat_days)}</span>` : ''}
+            ${t.repeat_days ? `<span style="background:var(--warn-bg);color:var(--warn)">🔁 ${repeatLabel(t.repeat_days)}</span>` : ''}
           </div>
           ${p.total ? `<div class="prog-row">
             <div class="prog"><div class="fill" style="width:${p.pct}%"></div></div>
@@ -407,7 +407,7 @@ function viewCalendar(list) {
   const first = new Date(y, m - 1, 1);
   const gridStart = new Date(first.getTime() - first.getDay() * DAY);
   const week = ['일', '월', '화', '수', '목', '금', '토']
-    .map((w, i) => `<div style="color:${i === 0 ? '#CE3E3E' : i === 6 ? '#2A65E0' : '#5A6270'}">${w}</div>`).join('');
+    .map((w, i) => `<div style="color:${i === 0 ? 'var(--danger)' : i === 6 ? 'var(--accent)' : 'var(--text-3)'}">${w}</div>`).join('');
 
   const cells = [];
   for (let i = 0; i < 42; i++) {
@@ -415,9 +415,9 @@ function viewCalendar(list) {
     const key = iso(d), inMonth = d.getMonth() === m - 1, isToday = key === TODAY;
     const evts = list.filter((t) => t.due === key);
     cells.push({
-      html: `<div class="day" style="background:${inMonth ? '#fff' : '#FAFBFC'}">
+      html: `<div class="day" style="background:${inMonth ? 'var(--surface)' : 'var(--surface-2)'}">
         <div style="display:flex;align-items:center;gap:5px">
-          <span class="n" style="font-weight:${isToday ? 700 : 500};background:${isToday ? '#2A65E0' : 'transparent'};color:${isToday ? '#fff' : !inMonth ? '#6B7280' : d.getDay() === 0 ? '#CE3E3E' : d.getDay() === 6 ? '#2A65E0' : '#3C424C'}">${d.getDate()}</span>
+          <span class="n" style="font-weight:${isToday ? 700 : 500};background:${isToday ? 'var(--accent)' : 'transparent'};color:${isToday ? 'var(--on-accent)' : !inMonth ? 'var(--text-4)' : d.getDay() === 0 ? 'var(--danger)' : d.getDay() === 6 ? 'var(--accent)' : 'var(--text-2)'}">${d.getDate()}</span>
         </div>
         ${evts.map((t) => `<div class="ev" data-act="open" data-id="${t.id}" style="background:${TYPE_BG(t.type)};color:${TYPE_COLOR(t.type)};border-left:3px solid ${TYPE_COLOR(t.type)};text-decoration:${isDone(t.status) ? 'line-through' : 'none'}">${esc(t.title)}</div>`).join('')}
       </div>`,
@@ -469,7 +469,7 @@ function viewTimeline(list) {
       <div class="g-track">
         <div class="today" style="left:${todayLeft >= 0 && todayLeft <= 100 ? todayLeft : -10}%"></div>
         <div class="bar2" data-act="open" data-id="${t.id}" title="${range}"
-             style="left:${left}%;width:${width}%;background:${isDone(t.status) ? '#9CB6A4' : TYPE_COLOR(t.type)}"></div>
+             style="left:${left}%;width:${width}%;background:${isDone(t.status) ? 'var(--done-bar)' : TYPE_COLOR(t.type)}"></div>
         <div class="lab" style="left:${outside ? 'auto' : `${left + width}%`};right:${outside ? `${100 - left}%` : '0'};justify-content:${outside ? 'flex-end' : 'flex-start'}">
           <span>${range}</span>
         </div>
@@ -478,7 +478,7 @@ function viewTimeline(list) {
   }).join('');
 
   return `<div class="card" style="overflow:hidden">
-    <div class="gantt-head"><div class="card-t">타임라인</div><div style="font-size:11.5px;color:#6B7280">${iso(gs)} → ${iso(ge)}</div></div>
+    <div class="gantt-head"><div class="card-t">타임라인</div><div style="font-size:11.5px;color:var(--text-4)">${iso(gs)} → ${iso(ge)}</div></div>
     <div class="gantt-cols"><div class="fix">태스크</div><div style="flex:1;display:flex">${months.join('')}</div></div>
     ${rows}
   </div>`;
@@ -487,7 +487,7 @@ function viewTimeline(list) {
 // ── 메모 뷰 (Keep 스타일) ────────────────────────────
 function noteCard(n) {
   const task = n.task_id ? taskById(n.task_id) : null;
-  return `<div class="note-card" data-act="note-open" data-id="${n.id}" style="background:${esc(n.color) || '#fff'}">
+  return `<div class="note-card ${n.color ? 'tinted' : ''}" data-act="note-open" data-id="${n.id}" style="${n.color ? `background:${esc(n.color)}` : ''}">
     ${n.title ? `<div class="nt">${esc(n.title)}</div>` : ''}
     ${n.body ? `<div class="nb">${esc(n.body)}</div>` : ''}
     ${n.category || task ? `<div class="nfoot">
@@ -496,7 +496,7 @@ function noteCard(n) {
     </div>` : ''}
     ${S.colorPick === n.id ? `<div class="note-swatches">${NOTE_COLORS.map((c) =>
       `<button data-act="note-swatch" data-id="${n.id}" data-color="${c}" class="${(n.color || '') === c ? 'on' : ''}"
-        style="background:${c || '#fff'}" title="${c || '기본'}"></button>`).join('')}</div>` : ''}
+        style="background:${c || 'var(--surface)'}" title="${c || '기본'}"></button>`).join('')}</div>` : ''}
     <div class="note-actions">
       <button data-act="note-pin" data-id="${n.id}" title="${n.pinned ? '고정 해제' : '고정'}">📌</button>
       <button data-act="note-color" data-id="${n.id}" title="색상">🎨</button>
@@ -701,7 +701,7 @@ function viewNoteModal() {
           </select></div>
         <div class="field"><label>색상</label>
           <div class="note-swatches" style="padding-top:10px">${NOTE_COLORS.map((c) =>
-            `<button data-act="nm-color" data-color="${c}" class="${(n.color || '') === c ? 'on' : ''}" style="background:${c || '#fff'}" title="${c || '기본'}"></button>`).join('')}</div></div>
+            `<button data-act="nm-color" data-color="${c}" class="${(n.color || '') === c ? 'on' : ''}" style="background:${c || 'var(--surface)'}" title="${c || '기본'}"></button>`).join('')}</div></div>
       </div>
       <div class="field"><label>연결 태스크</label>
         <select id="n-task"><option value="">없음</option>
