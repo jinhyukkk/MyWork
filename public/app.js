@@ -460,7 +460,7 @@ function viewTimeline(list) {
 // ── 메모 뷰 (Keep 스타일) ────────────────────────────
 function noteCard(n) {
   const task = n.task_id ? taskById(n.task_id) : null;
-  return `<div class="note-card" data-act="note-open" data-id="${n.id}" style="background:${n.color || '#fff'}">
+  return `<div class="note-card" data-act="note-open" data-id="${n.id}" style="background:${esc(n.color) || '#fff'}">
     ${n.title ? `<div class="nt">${esc(n.title)}</div>` : ''}
     ${n.body ? `<div class="nb">${esc(n.body)}</div>` : ''}
     ${n.category || task ? `<div class="nfoot">
@@ -1086,8 +1086,15 @@ document.addEventListener('click', (e) => {
   if (act === 'opt-add') return addOption();
   if (act === 'opt-del') {
     const n = Number(el.dataset.used);
-    const msg = n ? `'${el.dataset.name}'을(를) 삭제하면 이 값을 쓰는 태스크 ${n}건이 다른 항목으로 옮겨집니다. 계속할까요?`
-                  : `'${el.dataset.name}'을(를) 삭제할까요?`;
+    // 업무분류 삭제 시엔 그 분류를 쓰는 메모도 분류 없음이 되므로 함께 안내한다.
+    const noteN = S.settings === 'category'
+      ? [...S.notes, ...S.archNotes].filter((x) => x.category === el.dataset.name).length : 0;
+    const parts = [];
+    if (n) parts.push(`이 값을 쓰는 태스크 ${n}건이 다른 항목으로 옮겨집니다`);
+    if (noteN) parts.push(`메모 ${noteN}건은 분류 없음이 됩니다`);
+    const msg = parts.length
+      ? `'${el.dataset.name}'을(를) 삭제하면 ${parts.join(', ')}. 계속할까요?`
+      : `'${el.dataset.name}'을(를) 삭제할까요?`;
     if (!confirm(msg)) return;
     return mutate(() => api(`/api/options/${id}`, { method: 'DELETE' }));
   }

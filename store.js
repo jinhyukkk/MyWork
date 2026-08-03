@@ -425,7 +425,7 @@ export const getNote = (db, id) => db.prepare('SELECT * FROM notes WHERE id = ?'
 export function listNotes(db, filter = {}) {
   const want = filter.archived === true ? 1 : 0;
   const rows = db.prepare('SELECT * FROM notes WHERE archived = ? ORDER BY pinned DESC, updated_at DESC, id DESC').all(want);
-  const q = (filter.q || '').trim().toLowerCase();
+  const q = String(filter.q ?? '').trim().toLowerCase();
   return rows.filter((n) =>
     (!filter.category || n.category === filter.category) &&
     (!filter.task_id || n.task_id === Number(filter.task_id)) &&
