@@ -2,7 +2,8 @@
 import { checklist, checklistTotals } from './progress.js';
 
 const DAY = 86400000;
-const VIEWS = { summary: '요약', list: '목록', board: '보드', calendar: '캘린더', timeline: '타임라인', notes: '메모' };
+// 프로젝트 뷰(/project)는 여기 없다 — 메뉴가 아니라 목록·보드의 ⑂ 배지와 모달에서 들어간다.
+const VIEWS = { summary: '요약', list: '목록', board: '보드', calendar: '캘린더', notes: '메모' };
 const KIND_LABEL = { status: '진행상황', category: '업무분류' };
 const META_KEY = { status: 'statuses', category: 'categories' };
 
@@ -46,10 +47,19 @@ const childProgress = (id) => {
   };
 };
 
-/** 하위 진행 배지. 목록·보드가 같은 마크업을 쓴다 — 지연 경고 규칙이 한 벌이어야 해서. */
-const childBadge = (c) => c.total
-  ? `<b class="sb-badge ${c.late ? 'late' : ''}" title="하위 ${c.done}/${c.total} 완료${c.late ? ` · ${c.late}건 지연` : ''}">⑂ ${c.done}/${c.total}${c.late ? ' ⚠' : ''}</b>`
-  : '';
+/**
+ * 하위 진행 배지. 목록·보드가 같은 마크업을 쓴다 — 지연 경고 규칙이 한 벌이어야 해서.
+ * id를 주면 프로젝트 뷰로 가는 링크가 된다(메뉴에 없는 뷰의 주 입구).
+ */
+const childBadge = (c, id) => {
+  if (!c.total) return '';
+  const label = `⑂ ${c.done}/${c.total}${c.late ? ' ⚠' : ''}`;
+  const cls = `sb-badge ${c.late ? 'late' : ''}`;
+  const tip = `하위 ${c.done}/${c.total} 완료${c.late ? ` · ${c.late}건 지연` : ''}`;
+  return id
+    ? `<a class="${cls}" href="/project?task=${id}" title="${tip} · 프로젝트 뷰로" onclick="event.stopPropagation()">${label}</a>`
+    : `<b class="${cls}" title="${tip}">${label}</b>`;
+};
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const parseD = (s) => { const p = String(s || '').split('-').map(Number); return new Date(p[0], (p[1] || 1) - 1, p[2] || 1); };
@@ -70,6 +80,9 @@ const S = {
   opt: { status: new Map(), category: new Map() }, doneSet: new Set(), waitingSet: new Set(),
   settings: null,
   view: document.body.dataset.view || 'summary',
+  // /project?task=27 — 없으면 프로젝트 목록을 보여준다
+  projectId: Number(new URLSearchParams(location.search).get('task')) || null,
+  quickChild: false,    // 프로젝트 뷰의 하위 태스크 인라인 추가 열림 여부
   query: savedFilters.query ?? '', fCategory: savedFilters.fCategory ?? 'all',
   sortKey: 'due', sortDir: 1,
   calMonth: TODAY.slice(0, 7),
@@ -282,9 +295,11 @@ function viewSummary(list) {
 
 // 우선순위·업무유형 컬럼은 없앴다 — 값이 한쪽에 쏠려(Medium 40:4, 유형 상위 2종이 86%)
 // 정렬에도 스캔에도 정보를 주지 못했다. 남은 축은 상태·분류·날짜뿐이다.
+// 시작일 컬럼도 뺐다 — 값이 대부분 «생성한 날» 근처의 자리채움이었다.
+// 시작일이 실제로 의미를 갖는 곳은 프로젝트 뷰의 간트뿐이라 편집·표시를 거기로 모았다.
 const COLS = [
   { key: 'title', label: '제목' }, { key: 'status', label: '상태' }, { key: 'category', label: '분류' },
-  { key: 'start', label: '시작일' }, { key: 'due', label: '마감일' }, { key: '', label: '' },
+  { key: 'due', label: '마감일' }, { key: '', label: '' },
 ];
 
 function viewList(list) {
@@ -335,11 +350,10 @@ function viewList(list) {
     return `<div class="grid-row trow">
       <div class="main ${t.parent_id ? 'is-sub' : ''}" style="${sub}" data-act="open" data-id="${t.id}">
         <span class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? 'var(--text-4)' : 'var(--text)'}">${t.parent_id ? '<span class="sub-mark">↳</span>' : ''}${esc(t.title)}</span>
-        <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${folds.has(t.id) ? `<b class="fold-badge" data-act="fold" data-id="${t.id}">${S.openSeries.has(seriesKey(t)) ? '− 이전 회차 접기' : `＋ 이전 회차 ${folds.get(t.id)}건`}</b>` : ''}${childBadge(c)}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${esc(t.memo || '—')}</span>
+        <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${folds.has(t.id) ? `<b class="fold-badge" data-act="fold" data-id="${t.id}">${S.openSeries.has(seriesKey(t)) ? '− 이전 회차 접기' : `＋ 이전 회차 ${folds.get(t.id)}건`}</b>` : ''}${childBadge(c, t.id)}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${esc(t.memo || '—')}</span>
       </div>
       <div class="cell"><span class="chip" style="background:${STATUS_BG(t.status)};color:${STATUS_COLOR(t.status)}">${esc(t.status)}</span></div>
       <div class="cell" style="color:var(--text-3)">${esc(t.category)}</div>
-      <div class="cell" style="color:var(--text-4);font-variant-numeric:tabular-nums">${md(t.start)}</div>
       <div class="cell" style="color:${dm.color};font-variant-numeric:tabular-nums;font-weight:550">${dm.text}</div>
       <div class="cell" style="padding:0 8px;display:flex;justify-content:center">
         <button class="x-btn" data-act="del" data-id="${t.id}">×</button></div>
@@ -373,7 +387,7 @@ function viewBoard(list) {
           <div class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? 'var(--text-4)' : 'var(--text)'}">${esc(t.title)}</div>
           <div class="tags">
             <span style="background:${CAT_COLOR(t.category)}1A;color:${CAT_COLOR(t.category)};font-weight:400">${esc(t.category)}</span>
-            ${childBadge(c)}
+            ${childBadge(c, t.id)}
             ${t.repeat_days ? `<span style="background:var(--warn-bg);color:var(--warn)">🔁 ${repeatLabel(t.repeat_days)}</span>` : ''}
           </div>
           ${p.total ? `<div class="prog-row">
@@ -428,50 +442,152 @@ function viewCalendar(list) {
   </div>`;
 }
 
-function viewTimeline(all) {
-  // 마감 없는 태스크는 막대를 그릴 수 없다 — 축 계산에서 빼지 않으면 NaN이 전파된다
-  const list = all.filter((t) => t.due);
-  if (!list.length) return '<div class="card empty">표시할 태스크가 없습니다.</div>';
-  const starts = list.map((t) => parseD(t.start).getTime());
-  const ends = list.map((t) => parseD(t.due).getTime());
-  const min = new Date(Math.min(...starts)), max = new Date(Math.max(...ends));
-  const gs = new Date(min.getFullYear(), min.getMonth(), 1);
-  const ge = new Date(max.getFullYear(), max.getMonth() + 1, 0);
-  const total = Math.round((ge - gs) / DAY) + 1;
+// ── 프로젝트 뷰 (구 타임라인) ────────────────────────
+// 「하위 태스크를 가진 태스크 = 프로젝트」다. 별도 플래그를 두지 않는다 —
+// 하위가 붙는 순간 프로젝트가 되고, 마지막 하위를 떼면 그냥 태스크로 돌아간다.
+// 메뉴에서는 뺐다. 전 태스크를 늘어놓은 간트는 개인 업무에 과잉이었고,
+// 같은 렌더러가 「한 프로젝트의 하위들」을 볼 때는 실제로 쓸모가 있다.
 
-  const months = [];
-  for (let cur = new Date(gs); cur <= ge; cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1)) {
-    const dim = new Date(cur.getFullYear(), cur.getMonth() + 1, 0).getDate();
-    months.push(`<div class="mo" style="width:${(dim / total) * 100}%">${cur.getMonth() + 1}월 ${cur.getFullYear()}</div>`);
+/** 하위를 가진 태스크들. 프로젝트 목록이자 «프로젝트인가»의 판정 기준. */
+const projects = () => S.tasks.filter((t) => !t.parent_id && childrenOf(t.id).length);
+
+// 필터가 걸린 목록을 받지 않는다 — 분류 필터나 «완료 숨김» 때문에
+// 프로젝트 안의 하위가 사라지면 일정이 거짓말을 한다.
+function viewProject() {
+  const parent = S.projectId ? taskById(S.projectId) : null;
+  if (!parent) return viewProjectList();
+  if (parent.parent_id) return '<div class="card empty">하위 태스크는 프로젝트가 될 수 없습니다 (1단계까지).</div>';
+
+  const kids = childrenOf(parent.id);
+  if (!kids.length) {
+    return `${projectHead(parent)}
+      <div class="card empty">하위 태스크가 없습니다. 아래에서 추가하면 여기에 일정이 그려집니다.</div>
+      ${projectAdd(parent)}`;
   }
-  const todayLeft = ((parseD(TODAY) - gs) / DAY / total) * 100;
 
-  const rows = list.slice().sort((a, b) => a.start.localeCompare(b.start)).map((t) => {
-    const st = parseD(t.start), en = parseD(t.due);
-    const left = ((st - gs) / DAY / total) * 100;
-    const width = Math.max(0.8, (((en - st) / DAY + 1) / total) * 100);
-    const outside = left + width > 62;
-    const range = `${md(t.start)} – ${md(t.due)}`;
-    return `<div class="g-row">
-      <div class="fix" data-act="open" data-id="${t.id}">
-        <span class="dot" style="background:${CAT_COLOR(t.category)}"></span><span>${esc(t.title)}</span>
-      </div>
-      <div class="g-track">
-        <div class="today" style="left:${todayLeft >= 0 && todayLeft <= 100 ? todayLeft : -10}%"></div>
-        <div class="bar2" data-act="open" data-id="${t.id}" title="${range}"
-             style="left:${left}%;width:${width}%;background:${isDone(t.status) ? 'var(--done-bar)' : CAT_COLOR(t.category)}"></div>
-        <div class="lab" style="left:${outside ? 'auto' : `${left + width}%`};right:${outside ? `${100 - left}%` : '0'};justify-content:${outside ? 'flex-end' : 'flex-start'}">
-          <span>${range}</span>
+  // 마감 없는 하위는 막대를 그릴 수 없다 — 축 계산에 넣으면 NaN이 전파된다.
+  // 빼는 대신 아래 «일정 미정» 구역으로 내려보내 날짜를 채울 자리를 준다.
+  const dated = kids.filter((t) => t.due);
+  const undated = kids.filter((t) => !t.due);
+
+  let gantt = '';
+  if (dated.length) {
+    // 상위 마감도 축에 포함시킨다 — 하위가 상위 마감을 넘겼는지 한눈에 보여야 한다
+    const stamps = [
+      ...dated.map((t) => parseD(t.start).getTime()),
+      ...dated.map((t) => parseD(t.due).getTime()),
+      ...(parent.due ? [parseD(parent.due).getTime()] : []),
+    ];
+    const min = new Date(Math.min(...stamps)), max = new Date(Math.max(...stamps));
+    const gs = new Date(min.getFullYear(), min.getMonth(), 1);
+    const ge = new Date(max.getFullYear(), max.getMonth() + 1, 0);
+    const total = Math.round((ge - gs) / DAY) + 1;
+    const pctOf = (d) => ((parseD(d) - gs) / DAY / total) * 100;
+
+    const months = [];
+    for (let cur = new Date(gs); cur <= ge; cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1)) {
+      const dim = new Date(cur.getFullYear(), cur.getMonth() + 1, 0).getDate();
+      months.push(`<div class="mo" style="width:${(dim / total) * 100}%">${cur.getMonth() + 1}월 ${cur.getFullYear()}</div>`);
+    }
+    const todayLeft = pctOf(TODAY);
+    const dueLeft = parent.due ? pctOf(parent.due) : null;
+
+    const rows = dated.slice().sort((a, b) => a.start.localeCompare(b.start)).map((t) => {
+      const left = pctOf(t.start);
+      const width = Math.max(0.8, ((parseD(t.due) - parseD(t.start)) / DAY + 1) / total * 100);
+      const outside = left + width > 62;
+      const range = `${md(t.start)} – ${md(t.due)}`;
+      // 상위 마감을 넘긴 하위는 경고색 — 상위는 평온해 보여도 안에서 밀려 있을 수 있다
+      const over = parent.due && !isDone(t.status) && t.due > parent.due;
+      return `<div class="g-row">
+        <div class="fix">
+          <input type="checkbox" data-act="proj-done" data-id="${t.id}" ${isDone(t.status) ? 'checked' : ''}
+                 title="완료 토글">
+          <span class="pj-t ${isDone(t.status) ? 'done' : ''}" data-act="open" data-id="${t.id}">${esc(t.title)}</span>
         </div>
-      </div>
-    </div>`;
-  }).join('');
+        <div class="g-track">
+          <div class="today" style="left:${todayLeft >= 0 && todayLeft <= 100 ? todayLeft : -10}%"></div>
+          ${dueLeft !== null && dueLeft >= 0 && dueLeft <= 100
+            ? `<div class="pj-due" style="left:${dueLeft}%" title="상위 마감 ${md(parent.due)}"></div>` : ''}
+          <div class="bar2 ${over ? 'over' : ''}" data-act="open" data-id="${t.id}" title="${range}"
+               style="left:${left}%;width:${width}%;${isDone(t.status) ? 'background:var(--done-bar)'
+                 : over ? '' : `background:${CAT_COLOR(t.category)}`}"></div>
+          <div class="lab" style="left:${outside ? 'auto' : `${left + width}%`};right:${outside ? `${100 - left}%` : '0'};justify-content:${outside ? 'flex-end' : 'flex-start'}">
+            <span>${range}${over ? ' ⚠' : ''}</span>
+          </div>
+        </div>
+        <div class="pj-dates">
+          <input type="date" value="${t.start}" data-act="proj-start" data-id="${t.id}" title="시작일">
+          <input type="date" value="${t.due}" data-act="proj-due" data-id="${t.id}" title="마감일">
+        </div>
+      </div>`;
+    }).join('');
 
-  return `<div class="card" style="overflow:hidden">
-    <div class="gantt-head"><div class="card-t">타임라인</div><div style="font-size:11.5px;color:var(--text-4)">${iso(gs)} → ${iso(ge)}</div></div>
-    <div class="gantt-cols"><div class="fix">태스크</div><div style="flex:1;display:flex">${months.join('')}</div></div>
-    ${rows}
+    gantt = `<div class="card" style="overflow:hidden">
+      <div class="gantt-cols"><div class="fix">하위 태스크</div><div style="flex:1;display:flex">${months.join('')}</div><div class="pj-dates">시작 · 마감</div></div>
+      ${rows}
+    </div>`;
+  }
+
+  const pending = undated.length ? `<div class="card" style="padding:14px 18px">
+    <div class="card-t" style="margin-bottom:4px">일정 미정 ${undated.length}</div>
+    <div class="ck-hint" style="margin-bottom:10px">마감일을 채우면 위 간트로 올라갑니다.</div>
+    ${undated.map((t) => `<div class="g-row">
+      <div class="fix">
+        <input type="checkbox" data-act="proj-done" data-id="${t.id}" ${isDone(t.status) ? 'checked' : ''} title="완료 토글">
+        <span class="pj-t ${isDone(t.status) ? 'done' : ''}" data-act="open" data-id="${t.id}">${esc(t.title)}</span>
+      </div>
+      <div style="flex:1"></div>
+      <div class="pj-dates">
+        <input type="date" value="${t.start}" data-act="proj-start" data-id="${t.id}" title="시작일">
+        <input type="date" value="" data-act="proj-due" data-id="${t.id}" title="마감일">
+      </div>
+    </div>`).join('')}
+  </div>` : '';
+
+  return `<div class="stack">${projectHead(parent)}${gantt}${pending}${projectAdd(parent)}</div>`;
+}
+
+/** 프로젝트 머리 — 상위 태스크 자체의 정보. 클릭하면 상위 모달이 열린다. */
+function projectHead(p) {
+  const dm = dueMeta(p), c = childProgress(p.id);
+  return `<div class="card pj-head">
+    <a class="pj-back" href="/project">‹ 프로젝트</a>
+    <span class="dot" style="background:${CAT_COLOR(p.category)}"></span>
+    <b data-act="open" data-id="${p.id}" style="cursor:pointer">${esc(p.title)}</b>
+    <span class="chip" style="background:${STATUS_BG(p.status)};color:${STATUS_COLOR(p.status)}">${esc(p.status)}</span>
+    <span class="c">${esc(p.category)}</span>
+    ${childBadge(c)}
+    <div style="flex:1"></div>
+    <span style="color:${dm.color};font-size:12px;font-weight:600">${dm.text}</span>
   </div>`;
+}
+
+/** 제목만 받는 인라인 추가. 보드 빠른 추가와 같은 규칙 — 닫는 모든 경로가 저장이다. */
+function projectAdd(p) {
+  return S.quickChild
+    ? `<div class="card" style="padding:10px 14px"><input id="pc-title" placeholder="하위 태스크 제목 입력 후 Enter · 연속 추가 가능"></div>`
+    : `<div><button class="btn-sm" data-act="pc-open">＋ 하위 태스크 추가</button></div>`;
+}
+
+/** 쿼리 없이 들어왔을 때의 목록. 메뉴에 없는 뷰라 이 화면이 입구 역할을 한다. */
+function viewProjectList() {
+  const rows = projects().map((p) => {
+    const c = childProgress(p.id), dm = dueMeta(p);
+    return `<a class="pj-card" href="/project?task=${p.id}">
+      <span class="dot" style="background:${CAT_COLOR(p.category)}"></span>
+      <b>${esc(p.title)}</b>
+      <span class="c">${esc(p.category)}</span>
+      ${childBadge(c)}
+      <div style="flex:1"></div>
+      <span style="color:${dm.color};font-size:12px">${dm.text}</span>
+    </a>`;
+  }).join('');
+  return `<div class="stack"><div class="card" style="padding:18px">
+    <div class="card-t" style="margin-bottom:4px">프로젝트</div>
+    <div class="ck-hint" style="margin-bottom:12px">하위 태스크를 가진 태스크가 프로젝트입니다. 태스크 모달의 «하위 태스크»에서 붙이면 여기에 나타납니다.</div>
+    ${rows || '<div class="empty">아직 프로젝트가 없습니다.</div>'}
+  </div></div>`;
 }
 
 // ── 메모 뷰 (Keep 스타일) ────────────────────────────
@@ -592,7 +708,8 @@ function viewChildren(m) {
   const kids = childrenOf(m.id);
   const p = childProgress(m.id);
   return `<div class="field">
-    <label>하위 태스크 ${p.total ? `<span class="ck-n">${p.done}/${p.total}</span>` : ''}</label>
+    <label>하위 태스크 ${p.total ? `<span class="ck-n">${p.done}/${p.total}</span>` : ''}
+      ${p.total ? '<button class="btn-sm" data-act="proj-open" style="float:right">프로젝트 뷰로 열기</button>' : ''}</label>
     <div class="ck-list">${kids.map((t) => {
       const dm = dueMeta(t);
       return `<div class="ck-item" data-act="open" data-id="${t.id}" style="cursor:pointer">
@@ -740,11 +857,8 @@ function viewModal() {
         <div class="field"><label>진행상황</label><select id="d-status">${opts(S.statuses, m.status)}</select></div>
         <div class="field"><label>업무분류</label><select id="d-category">${opts(S.categories, m.category)}</select></div>
       </div>
-      <div class="row2">
-        <div class="field"><label>시작일</label><input type="date" id="d-start" value="${m.start}"></div>
-        <div class="field"><label>마감일 <span style="font-weight:400;color:var(--text-4)">· 비우면 «언젠가»</span></label>
-          <input type="date" id="d-due" value="${m.due ?? ''}"></div>
-      </div>
+      <div class="field"><label>마감일 <span style="font-weight:400;color:var(--text-4)">· 비우면 «언젠가»</span></label>
+        <input type="date" id="d-due" value="${m.due ?? ''}"></div>
       ${viewParent(m)}
       <div class="field">
         <label>반복</label>
@@ -786,14 +900,16 @@ function render() {
       <span class="cdot" style="background:${CAT_COLOR(c)}"></span>
       <span class="name">${esc(c)}</span><span class="n">${catCount[c] || 0}</span></button>`).join('');
 
-  document.getElementById('view-title').textContent = `${VIEWS[S.view]} 뷰`;
+  // 프로젝트 뷰는 메뉴에 없으므로 VIEWS에서 이름이 나오지 않는다
+  document.getElementById('view-title').textContent =
+    S.view === 'project' ? '프로젝트' : `${VIEWS[S.view]} 뷰`;
   const fc = document.getElementById('f-category');
   fc.innerHTML = `<option value="all">분류: 전체</option>${S.categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}`;
   fc.value = S.fCategory;
   document.getElementById('hide-done')?.classList.toggle('on', S.hideDone);
   document.getElementById('show-arch-notes')?.classList.toggle('on', S.showArchivedNotes);
 
-  const renderers = { summary: viewSummary, list: viewList, board: viewBoard, calendar: viewCalendar, timeline: viewTimeline, notes: viewNotes };
+  const renderers = { summary: viewSummary, list: viewList, board: viewBoard, calendar: viewCalendar, project: viewProject, notes: viewNotes };
   document.getElementById('viewport').innerHTML = renderers[S.view](S.view === 'notes' ? filteredNotes() : list);
   document.getElementById('modal-root').innerHTML = viewModal() + viewNoteModal() + viewToast();
   // 지정된 경우에만 포커스 — 체크리스트 조작 중 제목으로 커서가 튀지 않게
@@ -847,9 +963,11 @@ function syncDraft() {
   const v = (id) => document.getElementById(id)?.value;
   Object.assign(S.modal, {
     title: v('d-title'), status: v('d-status'), category: v('d-category'),
-    start: v('d-start'), due: v('d-due'), memo: v('d-memo'),
+    due: v('d-due'), memo: v('d-memo'),
     repeat_days: Number(v('d-repeat') ?? 0),
   });
+  // 시작일 입력은 모달에 없다(프로젝트 뷰 전용) — m.start를 그대로 둔다.
+  // 여기서 v('d-start')를 읽으면 undefined가 덮어써져 저장이 «start 누락»으로 막힌다.
   // 하위를 가진 태스크는 select 자체가 없다 — 그럴 땐 기존 값을 그대로 둔다
   const parent = v('d-parent');
   if (parent !== undefined) S.modal.parent_id = parent ? Number(parent) : null;
@@ -943,6 +1061,18 @@ async function openChild() {
   openNew(null, parentId);
 }
 
+/**
+ * 모달에서 프로젝트 뷰로. 뷰가 물리 페이지라 이동하면 편집 중이던 내용이 날아가므로
+ * 하위 추가와 같은 방식으로 먼저 저장한다.
+ */
+async function openProject() {
+  const id = S.modal?.id;
+  if (!id) return;
+  await saveDraft();
+  if (S.modal) return; // 저장 실패 — 에러가 뜬 모달을 그대로 둔다
+  location.href = `/project?task=${id}`;
+}
+
 // ── 메모 조작 ────────────────────────────────────────
 async function openNote(id) {
   const n = noteById(id);
@@ -999,6 +1129,24 @@ async function saveQuickTask(keepOpen = false) {
     category: S.fCategory !== 'all' ? S.fCategory : S.categories[0],
     // 빠른 추가에는 마감을 붙이지 않는다 — 캡처가 목적이지 일정 잡기가 아니다
     start: TODAY, due: null, memo: '', repeat_days: 0, parent_id: null,
+  }));
+}
+
+/**
+ * 프로젝트 뷰의 하위 태스크 인라인 추가. 보드 빠른 추가와 같은 규칙 —
+ * 닫는 모든 경로(Esc·바깥 클릭)가 저장이고, 비어 있으면 그냥 닫힌다.
+ * 상위의 분류를 물려받되 마감은 붙이지 않는다. 날짜는 간트 행에서 바로 채운다.
+ */
+async function saveQuickChild(keepOpen = false) {
+  const parent = taskById(S.projectId);
+  const title = document.getElementById('pc-title')?.value.trim() ?? '';
+  if (!keepOpen) S.quickChild = false;
+  if (!title || !parent) return keepOpen ? undefined : render();
+  if (keepOpen) S.focusId = 'pc-title';
+  await mutate(() => send('/api/tasks', 'POST', {
+    title, status: S.statuses.find((s) => !isDone(s)) ?? S.statuses[0],
+    category: parent.category,
+    start: TODAY, due: null, memo: '', repeat_days: 0, parent_id: parent.id,
   }));
 }
 
@@ -1082,6 +1230,7 @@ document.addEventListener('click', (e) => {
   // 빠른 작성이 열려 있을 때 바깥을 클릭하면 Keep처럼 저장하고 닫는다 (비어 있으면 그냥 닫힘)
   if (S.quick && !e.target.closest('.note-quick')) saveQuick();
   if (S.quickTask && !e.target.closest('.bq-form')) saveQuickTask(); // 동기 구간에서 먼저 닫히므로 다른 열의 ＋와 겹쳐도 안전
+  if (S.quickChild && !e.target.closest('#pc-title')) saveQuickChild();
   const el = e.target.closest('[data-act]');
   if (!el) return;
   const { act, id } = el.dataset;
@@ -1134,12 +1283,24 @@ document.addEventListener('click', (e) => {
     S.quickTask = el.dataset.status; render();
     return document.getElementById('bq-title')?.focus();
   }
+  if (act === 'pc-open') {
+    S.quickChild = true; render();
+    return document.getElementById('pc-title')?.focus();
+  }
+  // 프로젝트 뷰 — 하위의 완료 토글. 가장 잦은 조작이라 모달을 열지 않는다.
+  if (act === 'proj-done') {
+    e.stopPropagation();
+    const t = taskById(Number(id));
+    const to = isDone(t.status) ? (S.statuses.find((s) => !isDone(s)) ?? t.status) : S.statuses.find(isDone);
+    return mutate(() => send(`/api/tasks/${id}`, 'PATCH', { status: to }));
+  }
   if (act === 'del') { e.stopPropagation(); return requestDelete(id); }
   if (act === 'del-modal') { const t = S.modal.id; S.modal = null; return requestDelete(t); }
   if (act === 'undo') return undoDelete();
   if (act === 'save') return saveDraft();
   if (act === 'sub-add') return addSubtask();
   if (act === 'child-add') return openChild();
+  if (act === 'proj-open') return openProject();
   if (act === 'sub-toggle') { syncDraft(); return mutate(() => send(`/api/subtasks/${el.dataset.sub}`, 'PATCH', { done: el.dataset.done !== '1' })); }
   if (act === 'sub-del') { syncDraft(); return mutate(() => api(`/api/subtasks/${el.dataset.sub}`, { method: 'DELETE' })); }
   if (act === 'close' || (act === 'close-bd' && e.target === el)) return closeTask();
@@ -1280,6 +1441,9 @@ document.addEventListener('change', (e) => {
   if (e.target.id === 'a-before') return archiveAction(async () => {});
   if (e.target.id === 'resched-date' && e.target.value) return reschedule(e.target.value);
   const act = e.target.dataset?.act, id = e.target.dataset?.id;
+  // 프로젝트 뷰의 날짜 인라인 편집 — 고르는 순간 저장. 앱에서 시작일이 보이는 유일한 곳이다.
+  if (act === 'proj-start') return mutate(() => send(`/api/tasks/${id}`, 'PATCH', { start: e.target.value }));
+  if (act === 'proj-due') return mutate(() => send(`/api/tasks/${id}`, 'PATCH', { due: e.target.value || null }));
   if (act === 'opt-color') return mutate(() => send(`/api/options/${id}`, 'PATCH', { color: e.target.value }));
   if (act === 'opt-done') return mutate(() => send(`/api/options/${id}`, 'PATCH', { done: e.target.checked }));
   if (act === 'opt-waiting') return mutate(() => send(`/api/options/${id}`, 'PATCH', { waiting: e.target.checked }));
@@ -1292,9 +1456,10 @@ document.addEventListener('change', (e) => {
   }
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && (S.modal || S.archive || S.settings || S.noteModal || S.quick || S.quickTask || S.colorPick)) {
+  if (e.key === 'Escape' && (S.modal || S.archive || S.settings || S.noteModal || S.quick || S.quickTask || S.quickChild || S.colorPick)) {
     if (S.quick) return saveQuick(); // 빠른 작성은 닫는 모든 경로가 저장이다 — Keep과 동일 (비어 있으면 그냥 닫힘)
     if (S.quickTask) return saveQuickTask();
+    if (S.quickChild) return saveQuickChild();
     if (S.modal) return closeTask();     // 저장 안 한 변경이 있으면 확인 후 닫는다
     if (S.noteModal) return closeNote();
     S.archive = S.settings = null;
@@ -1307,6 +1472,7 @@ document.addEventListener('keydown', (e) => {
     if (S.noteModal) return saveNote();
   }
   if (e.key === 'Enter' && e.target.id === 'bq-title') { e.preventDefault(); saveQuickTask(true); }
+  if (e.key === 'Enter' && e.target.id === 'pc-title') { e.preventDefault(); saveQuickChild(true); }
   if (e.key === 'Enter' && e.target.id === 'd-newsub') { e.preventDefault(); addSubtask(); }
   if (e.key === 'Enter' && e.target.id === 's-new') { e.preventDefault(); addOption(); }
   if (e.key === 'Enter' && e.target.dataset?.act === 'opt-name') e.target.blur();
