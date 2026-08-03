@@ -211,6 +211,8 @@
   .bcard .parent-line:hover { filter:brightness(1.12); }
   /* 상위 쪽 배지는 건수 정보라 색이 필요 없다 — 무채색으로 두어 분류 색과 경쟁하지 않게 */
   .sb-badge { font-size:10.5px; color:#3C424C; background:#E9ECF1; padding:1px 5px; border-radius:3px; font-weight:700; margin-right:6px; font-variant-numeric:tabular-nums; }
+  /* 하위가 지연 중이면 상위 마감이 멀어도 경고색 — 상위가 하위의 지연을 가리지 않게 */
+  .sb-badge.late { color:#C1272D; background:#FBE3E3; }
   .bcard .tags .sb-badge { margin-right:0; padding:2px 6px; border-radius:4px; }
   /* 최상위 우선순위만 붙는 배지 — 색은 설정값을 그대로 쓴다(배경은 10% 틴트) */
   .hi-badge { font-size:10px; padding:1px 5px; border-radius:3px; font-weight:700; margin-right:6px; letter-spacing:.02em; vertical-align:1px; }

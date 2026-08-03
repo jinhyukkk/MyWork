@@ -35,11 +35,23 @@ const byPriority = (a, b) => PR_RANK(a.priority) - PR_RANK(b.priority) || endDat
 // 상하위 관계는 1단계뿐이라 인덱스 없이 훑는다 (개인용 규모 — 수십~수백 건)
 const taskById = (id) => S.tasks.find((t) => t.id === id);
 const childrenOf = (id) => S.tasks.filter((t) => t.parent_id === id);
-/** 하위 태스크 진행 — 완료 건수 기준. 없으면 total 0 → UI에서 숨김. */
+/**
+ * 하위 태스크 진행 — 완료 건수 기준. 없으면 total 0 → UI에서 숨김.
+ * late는 지연된 하위 건수. 상위는 마감이 멀어 평온해 보여도 하위가 밀려 있으면 배지가 경고색이 된다.
+ */
 const childProgress = (id) => {
   const kids = childrenOf(id);
-  return { done: kids.filter((t) => isDone(t.status)).length, total: kids.length };
+  return {
+    done: kids.filter((t) => isDone(t.status)).length,
+    total: kids.length,
+    late: kids.filter((t) => !isDone(t.status) && t.due < TODAY).length,
+  };
 };
+
+/** 하위 진행 배지. 목록·보드가 같은 마크업을 쓴다 — 지연 경고 규칙이 한 벌이어야 해서. */
+const childBadge = (c) => c.total
+  ? `<b class="sb-badge ${c.late ? 'late' : ''}" title="하위 ${c.done}/${c.total} 완료${c.late ? ` · ${c.late}건 지연` : ''}">⑂ ${c.done}/${c.total}${c.late ? ' ⚠' : ''}</b>`
+  : '';
 
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const parseD = (s) => { const p = String(s || '').split('-').map(Number); return new Date(p[0], (p[1] || 1) - 1, p[2] || 1); };
@@ -330,7 +342,7 @@ function viewList(list) {
     return `<div class="grid-row trow">
       <div class="main ${t.parent_id ? 'is-sub' : ''}" style="${sub}" data-act="open" data-id="${t.id}">
         <span class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? '#6B7280' : '#14161A'}">${t.parent_id ? '<span class="sub-mark">↳</span>' : ''}${done ? '' : topBadge(t.priority)}${esc(t.title)}</span>
-        <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${folds.has(t.id) ? `<b class="fold-badge" data-act="fold" data-id="${t.id}">${S.openSeries.has(seriesKey(t)) ? '− 이전 회차 접기' : `＋ 이전 회차 ${folds.get(t.id)}건`}</b>` : ''}${c.total ? `<b class="sb-badge">⑂ ${c.done}/${c.total}</b>` : ''}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${esc(t.memo || '—')}</span>
+        <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${folds.has(t.id) ? `<b class="fold-badge" data-act="fold" data-id="${t.id}">${S.openSeries.has(seriesKey(t)) ? '− 이전 회차 접기' : `＋ 이전 회차 ${folds.get(t.id)}건`}</b>` : ''}${childBadge(c)}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${esc(t.memo || '—')}</span>
       </div>
       <div class="cell"><span class="chip" style="background:${TYPE_BG(t.type)};color:${TYPE_COLOR(t.type)}">${esc(t.type)}</span></div>
       <div class="cell"><span class="chip" style="background:${STATUS_BG(t.status)};color:${STATUS_COLOR(t.status)}">${esc(t.status)}</span></div>
@@ -370,7 +382,7 @@ function viewBoard(list) {
           <div class="tags">
             <span style="background:${TYPE_BG(t.type)};color:${TYPE_COLOR(t.type)}">${esc(t.type)}</span>
             <span style="background:${CAT_COLOR(t.category)}1A;color:${CAT_COLOR(t.category)};font-weight:400">${esc(t.category)}</span>
-            ${c.total ? `<span style="background:#E9ECF1;color:#3C424C">⑂ ${c.done}/${c.total}</span>` : ''}
+            ${childBadge(c)}
             ${t.repeat_days ? `<span style="background:#FCF1E0;color:#A05F00">🔁 ${repeatLabel(t.repeat_days)}</span>` : ''}
           </div>
           ${p.total ? `<div class="prog-row">
