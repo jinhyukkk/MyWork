@@ -84,6 +84,7 @@ const S = {
   notes: [], archNotes: [], showArchivedNotes: false,
   noteModal: null,      // 메모 편집 모달
   quick: false,         // 빠른 작성 폼 펼침 여부
+  quickTask: null,      // 보드 인라인 빠른 추가가 열린 열(진행상황 이름)
   colorPick: null,      // 색상 스와치가 열린 메모 id
   convertNoteId: null,  // 태스크로 전환 중인 메모 id — 태스크 저장 성공 시 연결한다
 };
@@ -394,7 +395,9 @@ function viewBoard(list) {
             <span class="du" style="color:${dm.color}">${dm.short}</span>
           </div></div>`;
       }).join('')}
-      <button class="add-btn" data-act="new" data-status="${esc(st)}">＋ 태스크 추가</button>
+      ${S.quickTask === st
+        ? `<div class="bq-form"><input id="bq-title" placeholder="제목 입력 후 Enter · 연속 추가 가능"></div>`
+        : `<button class="add-btn" data-act="bq-open" data-status="${esc(st)}">＋ 태스크 추가</button>`}
     </div>`;
   }).join('')}</div>`;
 }
@@ -815,13 +818,32 @@ function render() {
   document.getElementById('viewport').innerHTML = renderers[S.view](S.view === 'notes' ? filteredNotes() : list);
   document.getElementById('modal-root').innerHTML = viewModal() + viewNoteModal() + viewToast();
   // 지정된 경우에만 포커스 — 체크리스트 조작 중 제목으로 커서가 튀지 않게
-  if (S.modal && S.focusId) { document.getElementById(S.focusId)?.focus(); S.focusId = null; }
+  if (S.focusId) { document.getElementById(S.focusId)?.focus(); S.focusId = null; }
 }
 
 // ── 모달 조작 ────────────────────────────────────────
+// 열 때 스냅샷을 찍고 닫을 때 비교한다 — 저장 안 한 변경을 조용히 버리지 않기 위해.
+// 체크리스트·하위 태스크는 즉시 저장이라 비교 대상이 아니다.
+const TASK_FIELDS = ['title', 'type', 'status', 'category', 'priority', 'start', 'due', 'memo', 'repeat_days', 'parent_id'];
+const NOTE_FIELDS = ['title', 'body', 'category', 'color', 'task_id'];
+const snap = (o, fields) => JSON.stringify(fields.map((k) => o[k] ?? '')); // null과 빈 입력을 같게 본다
+
+function closeTask() {
+  syncDraft();
+  if (snap(S.modal, TASK_FIELDS) !== S.taskSnap && !confirm('저장하지 않은 변경이 있습니다. 닫을까요?')) return;
+  S.modal = null; S.convertNoteId = null; S.error = '';
+  render();
+}
+function closeNote() {
+  syncNote();
+  if (snap(S.noteModal, NOTE_FIELDS) !== S.noteSnap && !confirm('저장하지 않은 변경이 있습니다. 닫을까요?')) return;
+  S.noteModal = null; S.error = '';
+  render();
+}
+
 function openTask(id) {
   const t = S.tasks.find((x) => x.id === Number(id));
-  if (t) { S.modal = { ...t }; S.newSub = ''; S.error = ''; S.focusId = 'd-title'; render(); }
+  if (t) { S.modal = { ...t }; S.taskSnap = snap(S.modal, TASK_FIELDS); S.newSub = ''; S.error = ''; S.focusId = 'd-title'; render(); }
 }
 function openNew(status, parentId = null) {
   // 하위 태스크는 상위의 분류·유형·마감일을 물려받는다 — 매번 다시 고르지 않도록
@@ -835,6 +857,7 @@ function openNew(status, parentId = null) {
     start: TODAY, due: p && p.due > TODAY ? p.due : shift(today, 7), memo: '', repeat_days: 0, subtasks: [],
     parent_id: parentId,
   };
+  S.taskSnap = snap(S.modal, TASK_FIELDS);
   S.newSub = ''; S.error = ''; S.focusId = 'd-title';
   render();
 }
@@ -952,6 +975,7 @@ async function openNote(id) {
   }
   S.modal = null;
   S.noteModal = { ...n };
+  S.noteSnap = snap(S.noteModal, NOTE_FIELDS);
   S.error = '';
   render();
 }
@@ -980,6 +1004,24 @@ async function saveNote() {
   });
 }
 
+/**
+ * 보드 인라인 빠른 추가 저장. 닫는 모든 경로가 저장이다 — 메모 빠른 작성과 같은 규칙 (비어 있으면 그냥 닫힘).
+ * 제목 외의 필드는 새 태스크 모달과 같은 기본값을 쓴다. Enter는 keepOpen으로 연속 추가.
+ */
+async function saveQuickTask(keepOpen = false) {
+  const st = S.quickTask;
+  const title = document.getElementById('bq-title')?.value.trim() ?? '';
+  if (!keepOpen) S.quickTask = null;
+  if (!title) return keepOpen ? undefined : render();
+  if (keepOpen) S.focusId = 'bq-title'; // 재렌더로 입력창이 비워진 뒤 커서를 되돌린다
+  await mutate(() => send('/api/tasks', 'POST', {
+    title, type: S.types[0], status: st,
+    category: S.fCategory !== 'all' ? S.fCategory : S.categories[0],
+    priority: S.priorities.includes('Medium') ? 'Medium' : S.priorities[0],
+    start: TODAY, due: shift(today, 7), memo: '', repeat_days: 0, parent_id: null,
+  }));
+}
+
 /** 빠른 작성 저장. 비어 있으면 만들지 않고 닫기만 한다 — Keep과 같은 동작. */
 async function saveQuick() {
   const title = document.getElementById('nq-title')?.value.trim() ?? '';
@@ -998,6 +1040,7 @@ function convertNote(id) {
   S.modal.title = n.title || n.body.split('\n')[0].slice(0, 80);
   S.modal.memo = n.body;
   if (n.category && S.categories.includes(n.category)) S.modal.category = n.category;
+  S.taskSnap = snap(S.modal, TASK_FIELDS); // 프리필까지가 «연 상태» — 그대로 닫으면 dirty가 아니다
   S.convertNoteId = n.id;
   render();
 }
@@ -1058,6 +1101,7 @@ addEventListener('pagehide', () => commitDelete(false));
 document.addEventListener('click', (e) => {
   // 빠른 작성이 열려 있을 때 바깥을 클릭하면 Keep처럼 저장하고 닫는다 (비어 있으면 그냥 닫힘)
   if (S.quick && !e.target.closest('.note-quick')) saveQuick();
+  if (S.quickTask && !e.target.closest('.bq-form')) saveQuickTask(); // 동기 구간에서 먼저 닫히므로 다른 열의 ＋와 겹쳐도 안전
   const el = e.target.closest('[data-act]');
   if (!el) return;
   const { act, id } = el.dataset;
@@ -1103,9 +1147,13 @@ document.addEventListener('click', (e) => {
   if (act === 'note-del') return requestDeleteNote(id);
   if (act === 'note-del-modal') { const nid = S.noteModal.id; S.noteModal = null; return requestDeleteNote(nid); }
   if (act === 'note-save') return saveNote();
-  if (act === 'note-close' || (act === 'note-close-bd' && e.target === el)) { S.noteModal = null; S.error = ''; return render(); }
+  if (act === 'note-close' || (act === 'note-close-bd' && e.target === el)) return closeNote();
   if (act === 'open') return openTask(id);
   if (act === 'new') return openNew(el.dataset.status);
+  if (act === 'bq-open') {
+    S.quickTask = el.dataset.status; render();
+    return document.getElementById('bq-title')?.focus();
+  }
   if (act === 'del') { e.stopPropagation(); return requestDelete(id); }
   if (act === 'del-modal') { const t = S.modal.id; S.modal = null; return requestDelete(t); }
   if (act === 'undo') return undoDelete();
@@ -1114,7 +1162,7 @@ document.addEventListener('click', (e) => {
   if (act === 'child-add') return openChild();
   if (act === 'sub-toggle') { syncDraft(); return mutate(() => send(`/api/subtasks/${el.dataset.sub}`, 'PATCH', { done: el.dataset.done !== '1' })); }
   if (act === 'sub-del') { syncDraft(); return mutate(() => api(`/api/subtasks/${el.dataset.sub}`, { method: 'DELETE' })); }
-  if (act === 'close' || (act === 'close-bd' && e.target === el)) { S.modal = null; S.convertNoteId = null; S.error = ''; return render(); }
+  if (act === 'close' || (act === 'close-bd' && e.target === el)) return closeTask();
   if (act === 'close-arch' || (act === 'close-arch-bd' && e.target === el)) { S.archive = null; S.error = ''; return render(); }
   if (act === 'close-set' || (act === 'close-set-bd' && e.target === el)) { S.settings = null; S.error = ''; return render(); }
   if (act === 'set-kind') { S.settings = el.dataset.kind; S.error = ''; return render(); }
@@ -1268,16 +1316,34 @@ document.addEventListener('change', (e) => {
   }
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && (S.modal || S.archive || S.settings || S.noteModal || S.quick || S.colorPick)) {
+  if (e.key === 'Escape' && (S.modal || S.archive || S.settings || S.noteModal || S.quick || S.quickTask || S.colorPick)) {
     if (S.quick) return saveQuick(); // 빠른 작성은 닫는 모든 경로가 저장이다 — Keep과 동일 (비어 있으면 그냥 닫힘)
-    S.modal = S.archive = S.settings = S.noteModal = null;
-    S.colorPick = null; S.convertNoteId = null;
+    if (S.quickTask) return saveQuickTask();
+    if (S.modal) return closeTask();     // 저장 안 한 변경이 있으면 확인 후 닫는다
+    if (S.noteModal) return closeNote();
+    S.archive = S.settings = null;
+    S.colorPick = null;
     render();
   }
+  // Ctrl(⌘)+Enter = 모달 저장. 아래 Enter 처리보다 먼저 봐야 d-newsub에서 겹치지 않는다.
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    if (S.modal) return saveDraft();
+    if (S.noteModal) return saveNote();
+  }
+  if (e.key === 'Enter' && e.target.id === 'bq-title') { e.preventDefault(); saveQuickTask(true); }
   if (e.key === 'Enter' && e.target.id === 'd-newsub') { e.preventDefault(); addSubtask(); }
   if (e.key === 'Enter' && e.target.id === 's-new') { e.preventDefault(); addOption(); }
   if (e.key === 'Enter' && e.target.dataset?.act === 'opt-name') e.target.blur();
+  // 전역 단축키 — 입력 중이거나 모달·빠른 추가가 열려 있으면 무시
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+  const busy = S.modal || S.noteModal || S.settings || S.archive || S.quick || S.quickTask;
+  if (typing || busy || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === '/') { e.preventDefault(); document.getElementById('q').focus(); }
+  if (e.key === 'n') { e.preventDefault(); openNew(); }
 });
 
 document.getElementById('q').value = S.query; // 검색창은 정적 DOM이라 복원값을 한 번 넣어 준다
+document.getElementById('q').title = '단축키: /';
+const newBtn = document.getElementById('new-task');
+if (newBtn) newBtn.title = '단축키: n';
 reload().catch((e) => { document.getElementById('viewport').innerHTML = `<div class="card empty">서버 연결 실패: ${esc(e.message)}</div>`; });
