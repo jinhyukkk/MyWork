@@ -2,7 +2,7 @@
 import { checklist, weightedPct, checklistTotals } from './progress.js';
 
 const DAY = 86400000;
-const VIEWS = { summary: '요약', list: '목록', board: '보드', calendar: '캘린더', timeline: '타임라인' };
+const VIEWS = { summary: '요약', list: '목록', board: '보드', calendar: '캘린더', timeline: '타임라인', notes: '메모' };
 const KIND_LABEL = { type: '업무유형', status: '진행상황', priority: '우선순위', category: '업무분류' };
 const META_KEY = { type: 'types', status: 'statuses', priority: 'priorities', category: 'categories' };
 
@@ -21,6 +21,8 @@ const isTop = (p) => p === S.priorities[0];
 const topBadge = (p) => isTop(p) ? `<b class="hi-badge" style="background:${PR_COLOR(p)}1A;color:${PR_COLOR(p)}">${esc(p)}</b>` : '';
 /** 반복 계열 식별자. 회차는 별도 태스크로 복사될 뿐 계열 id가 없어서 주기+제목으로 묶는다. */
 const seriesKey = (t) => `${t.repeat_days} ${t.title}`;
+// Keep 스타일 파스텔 팔레트. 첫 항목('')은 기본 카드색. 진한 글자가 그대로 읽히는 밝기로 고정한다.
+const NOTE_COLORS = ['', '#F8D7D4', '#FBE7CE', '#FBF3C2', '#DEF0D2', '#CDE9E2', '#D4E4F2', '#E3DEF2', '#EFE0DA'];
 /**
  * 그 태스크가 「걸려 있는 날」 — 끝난 건은 실제로 끝낸 날, 나머지는 마감일.
  * 표시(dueMeta)와 정렬이 같은 값을 봐야 완료 행이 화면에 보이는 날짜와 다른 자리에 앉지 않는다.
@@ -61,6 +63,11 @@ const S = {
   reSel: null, // 지연 일괄 재조정 선택. null = 전부 선택(기본값)
   pending: null, // 되돌리기 대기 중인 삭제 { id, title, timer }
   openSeries: new Set(), // 이전 회차를 펼쳐 둔 반복 계열
+  notes: [], archNotes: [], showArchivedNotes: false,
+  noteModal: null,      // 메모 편집 모달
+  quick: false,         // 빠른 작성 폼 펼침 여부
+  colorPick: null,      // 색상 스와치가 열린 메모 id
+  convertNoteId: null,  // 태스크로 전환 중인 메모 id — 태스크 저장 성공 시 연결한다
 };
 
 // ── API ──────────────────────────────────────────────
@@ -74,9 +81,11 @@ async function api(url, opts) {
 const send = (url, method, data) => api(url, { method, body: JSON.stringify(data) });
 
 async function reload() {
-  const [meta, tasks] = await Promise.all([api('/api/meta'), api('/api/tasks')]);
+  const [meta, tasks, notes, archNotes] = await Promise.all([
+    api('/api/meta'), api('/api/tasks'), api('/api/notes'), api('/api/notes?archived=1'),
+  ]);
   Object.assign(S, {
-    tasks,
+    tasks, notes, archNotes,
     categories: meta.categories.map((o) => o.name),
     types: meta.types.map((o) => o.name),
     statuses: meta.statuses.map((o) => o.name),
@@ -115,11 +124,23 @@ async function mutate(fn) {
 function filtered() {
   const q = S.query.trim().toLowerCase();
   return S.tasks.filter((t) =>
-    t.id !== S.pending?.id && // 삭제 대기 중 — 되돌리기 시간이 끝날 때까지만 감춘다
+    !(S.pending?.kind === 'task' && t.id === S.pending.id) && // 삭제 대기 중 — 되돌리기 시간이 끝날 때까지만 감춘다
     (S.fCategory === 'all' || t.category === S.fCategory) &&
     (S.fType === 'all' || t.type === S.fType) &&
     (S.fPriority === 'all' || t.priority === S.fPriority) &&
     (!q || t.title.toLowerCase().includes(q) || (t.memo || '').toLowerCase().includes(q)));
+}
+
+const noteById = (id) => [...S.notes, ...S.archNotes].find((n) => n.id === Number(id));
+
+function filteredNotes() {
+  const q = S.query.trim().toLowerCase();
+  const src = S.showArchivedNotes ? S.archNotes : S.notes;
+  return src.filter((n) =>
+    !(S.pending?.kind === 'note' && n.id === S.pending.id) &&
+    // 분류 없는 메모는 필터·사이드바 토글에 걸리지 않고 항상 보인다
+    (S.fCategory === 'all' || !n.category || n.category === S.fCategory) &&
+    (!q || n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q)));
 }
 
 // 지연 = 마감이 오늘 이전 + 미완료. 요약 뷰 표시와 일괄 재조정이 같은 정의를 쓴다.
@@ -436,6 +457,66 @@ function viewTimeline(list) {
   </div>`;
 }
 
+// ── 메모 뷰 (Keep 스타일) ────────────────────────────
+function noteCard(n) {
+  const task = n.task_id ? taskById(n.task_id) : null;
+  return `<div class="note-card" data-act="note-open" data-id="${n.id}" style="background:${n.color || '#fff'}">
+    ${n.title ? `<div class="nt">${esc(n.title)}</div>` : ''}
+    ${n.body ? `<div class="nb">${esc(n.body)}</div>` : ''}
+    ${n.category || task ? `<div class="nfoot">
+      ${n.category ? `<span class="chip" style="background:${CAT_COLOR(n.category)}1A;color:${CAT_COLOR(n.category)}">${esc(n.category)}</span>` : ''}
+      ${task ? `<span class="chip note-task" data-act="open" data-id="${task.id}" title="연결된 태스크 열기">✓ ${esc(task.title)}</span>` : ''}
+    </div>` : ''}
+    ${S.colorPick === n.id ? `<div class="note-swatches">${NOTE_COLORS.map((c) =>
+      `<button data-act="note-swatch" data-id="${n.id}" data-color="${c}" class="${(n.color || '') === c ? 'on' : ''}"
+        style="background:${c || '#fff'}" title="${c || '기본'}"></button>`).join('')}</div>` : ''}
+    <div class="note-actions">
+      <button data-act="note-pin" data-id="${n.id}" title="${n.pinned ? '고정 해제' : '고정'}">📌</button>
+      <button data-act="note-color" data-id="${n.id}" title="색상">🎨</button>
+      ${n.archived
+        ? `<button data-act="note-arch" data-id="${n.id}" data-to="0" title="복원">↩</button>`
+        : `<button data-act="note-totask" data-id="${n.id}" title="태스크로 전환" ${n.task_id ? 'disabled' : ''}>➜</button>
+           <button data-act="note-arch" data-id="${n.id}" data-to="1" title="보관">🗄</button>`}
+      <button class="x-btn" data-act="note-del" data-id="${n.id}">×</button>
+    </div>
+  </div>`;
+}
+
+function viewQuick() {
+  if (!S.quick) return '<div class="note-quick collapsed" data-act="quick-open">메모 작성…</div>';
+  return `<div class="note-quick">
+    <input id="nq-title" placeholder="제목">
+    <textarea id="nq-body" rows="3" placeholder="메모 내용…"></textarea>
+    <div class="nq-foot">
+      <select id="nq-category">
+        <option value="">분류 없음</option>
+        ${S.categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+      </select>
+      <div style="flex:1"></div>
+      <button class="btn-sm" data-act="quick-save">저장</button>
+    </div>
+  </div>`;
+}
+
+function viewNotes(list) {
+  const cards = (notes) => `<div class="notes-grid">${notes.map(noteCard).join('')}</div>`;
+  if (S.showArchivedNotes) {
+    return `<div class="notes-wrap">
+      ${list.length ? cards(list) : '<div class="card empty">보관된 메모가 없습니다.</div>'}
+    </div>`;
+  }
+  const pinned = list.filter((n) => n.pinned);
+  const rest = list.filter((n) => !n.pinned);
+  return `<div class="notes-wrap">
+    ${viewQuick()}
+    ${pinned.length
+      ? `<div class="notes-sec"><h6>📌 고정됨</h6>${cards(pinned)}</div>`
+        + (rest.length ? `<div class="notes-sec"><h6>기타</h6>${cards(rest)}</div>` : '')
+      : (rest.length ? cards(rest) : '')}
+    ${list.length ? '' : '<div class="card empty">메모가 없습니다. 위에서 바로 작성해 보세요.</div>'}
+  </div>`;
+}
+
 const REPEATS = [[0, '반복 없음'], [1, '매일'], [7, '매주'], [14, '2주마다'], [28, '4주마다']];
 const repeatLabel = (n) => REPEATS.find(([d]) => d === n)?.[1] ?? `${n}일마다`;
 /** 프리셋에 없는 주기(MCP로 넣은 값 등)도 선택지로 살려 둔다. */
@@ -571,6 +652,55 @@ function viewArchive() {
   </div></div>`;
 }
 
+/** 메모 편집 모달. 생성은 빠른 작성이 맡고, 여기는 항상 기존 메모(id 있음)를 연다. */
+function viewNoteModal() {
+  const n = S.noteModal;
+  if (!n) return '';
+  return `<div class="backdrop" data-act="note-close-bd"><div class="modal">
+    <div class="mh"><div class="t">메모</div><div style="flex:1"></div>
+      <button class="x-btn" data-act="note-close">×</button></div>
+    <div class="mb">
+      ${S.error ? `<div class="err">${esc(S.error)}</div>` : ''}
+      <div class="field"><label>제목</label>
+        <input id="n-title" value="${esc(n.title)}" placeholder="제목 (선택)"></div>
+      <div class="field"><label>내용</label>
+        <textarea id="n-body" rows="8" placeholder="메모 내용">${esc(n.body)}</textarea></div>
+      <div class="row2">
+        <div class="field"><label>업무분류</label>
+          <select id="n-category"><option value="">없음</option>
+            ${S.categories.map((c) => `<option value="${esc(c)}" ${c === n.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+          </select></div>
+        <div class="field"><label>색상</label>
+          <div class="note-swatches" style="padding-top:10px">${NOTE_COLORS.map((c) =>
+            `<button data-act="nm-color" data-color="${c}" class="${(n.color || '') === c ? 'on' : ''}" style="background:${c || '#fff'}" title="${c || '기본'}"></button>`).join('')}</div></div>
+      </div>
+      <div class="field"><label>연결 태스크</label>
+        <select id="n-task"><option value="">없음</option>
+          ${n.task_id && !taskById(n.task_id) ? `<option value="${n.task_id}" selected>#${n.task_id} (보관됨)</option>` : ''}
+          ${S.tasks.map((t) => `<option value="${t.id}" ${t.id === n.task_id ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}
+        </select>
+        <div class="ck-hint">연결하면 태스크 모달에서도 이 메모가 보입니다.</div></div>
+    </div>
+    <div class="mf">
+      <button class="btn-del" data-act="note-del-modal">삭제</button>
+      <div style="flex:1"></div>
+      <button class="btn-ghost" data-act="note-close">취소</button>
+      <button class="btn-save" data-act="note-save">저장</button>
+    </div>
+  </div></div>`;
+}
+
+/** 태스크에 연결된 메모 — 클릭하면 메모 편집으로 넘어간다. */
+function viewTaskNotes(m) {
+  if (!m.id) return '';
+  const notes = S.notes.filter((n) => n.task_id === m.id);
+  if (!notes.length) return '';
+  return `<div class="field"><label>연결된 메모 <span class="ck-n">${notes.length}건</span></label>
+    <div class="ck-list">${notes.map((n) => `<div class="ck-item" data-act="note-open" data-id="${n.id}" style="cursor:pointer">
+      <span class="ck-t">${esc(n.title || n.body.slice(0, 60))}</span>
+    </div>`).join('')}</div></div>`;
+}
+
 function viewModal() {
   if (S.settings) return viewSettings();
   if (S.archive) return viewArchive();
@@ -606,6 +736,7 @@ function viewModal() {
         <textarea id="d-memo" rows="4" placeholder="세부 내용, 링크 등">${esc(m.memo)}</textarea></div>
       ${viewChecklist(m)}
       ${viewChildren(m)}
+      ${viewTaskNotes(m)}
     </div>
     <div class="mf">
       ${m.id ? '<button class="btn-del" data-act="del-modal">삭제</button>' : ''}
@@ -626,7 +757,7 @@ function render() {
   document.getElementById('nav').innerHTML = Object.entries(VIEWS).map(([k, label]) =>
     `<a class="nav-btn ${S.view === k ? 'on' : ''}" href="/${k}">
       <span class="mark"></span><span class="label">${label}</span>
-      <span class="badge">${k === 'summary' ? '' : visible.length}</span></a>`).join('');
+      <span class="badge">${k === 'summary' ? '' : k === 'notes' ? S.notes.length : visible.length}</span></a>`).join('');
 
   const catCount = {};
   for (const t of S.tasks) catCount[t.category] = (catCount[t.category] || 0) + 1;
@@ -640,17 +771,22 @@ function render() {
   fc.innerHTML = `<option value="all">분류: 전체</option>${S.categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}`;
   fc.value = S.fCategory;
   const ft = document.getElementById('f-type');
-  ft.innerHTML = `<option value="all">유형: 전체</option>${S.types.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}`;
-  ft.value = S.fType;
+  if (ft) {
+    ft.innerHTML = `<option value="all">유형: 전체</option>${S.types.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}`;
+    ft.value = S.fType;
+  }
   // 우선순위 필터는 3지 선택 대신 «최상위 등급만» 토글이다 — 등급 이름은 설정에서 온다
   const fp = document.getElementById('f-priority');
-  fp.textContent = `${S.priorities[0] ?? '우선순위'}만`;
-  fp.classList.toggle('on', S.fPriority !== 'all');
-  document.getElementById('hide-done').classList.toggle('on', S.hideDone);
+  if (fp) {
+    fp.textContent = `${S.priorities[0] ?? '우선순위'}만`;
+    fp.classList.toggle('on', S.fPriority !== 'all');
+  }
+  document.getElementById('hide-done')?.classList.toggle('on', S.hideDone);
+  document.getElementById('show-arch-notes')?.classList.toggle('on', S.showArchivedNotes);
 
-  const renderers = { summary: viewSummary, list: viewList, board: viewBoard, calendar: viewCalendar, timeline: viewTimeline };
-  document.getElementById('viewport').innerHTML = renderers[S.view](list);
-  document.getElementById('modal-root').innerHTML = viewModal() + viewToast();
+  const renderers = { summary: viewSummary, list: viewList, board: viewBoard, calendar: viewCalendar, timeline: viewTimeline, notes: viewNotes };
+  document.getElementById('viewport').innerHTML = renderers[S.view](S.view === 'notes' ? filteredNotes() : list);
+  document.getElementById('modal-root').innerHTML = viewModal() + viewNoteModal() + viewToast();
   // 지정된 경우에만 포커스 — 체크리스트 조작 중 제목으로 커서가 튀지 않게
   if (S.modal && S.focusId) { document.getElementById(S.focusId)?.focus(); S.focusId = null; }
 }
@@ -748,8 +884,13 @@ async function saveDraft() {
     start: m.start, due: m.due, memo: m.memo, repeat_days: m.repeat_days ?? 0, parent_id: m.parent_id ?? null };
   await mutate(async () => {
     if (m.id) await send(`/api/tasks/${m.id}`, 'PATCH', body);
-    else await send('/api/tasks', 'POST', body);
+    else {
+      const created = await send('/api/tasks', 'POST', body);
+      // 메모 → 태스크 전환: 태스크가 실제로 만들어진 뒤에만 원본 메모를 연결한다
+      if (S.convertNoteId) await send(`/api/notes/${S.convertNoteId}`, 'PATCH', { task_id: created.id });
+    }
     S.modal = null;
+    S.convertNoteId = null;
   });
 }
 
@@ -760,6 +901,62 @@ async function openChild() {
   await saveDraft();
   if (S.modal) return; // 저장 실패 — 에러가 뜬 모달을 그대로 둔다
   openNew(null, parentId);
+}
+
+// ── 메모 조작 ────────────────────────────────────────
+function openNote(id) {
+  const n = noteById(id);
+  if (!n) return;
+  S.modal = null; // 태스크 모달의 «연결된 메모»에서 넘어오는 경우
+  S.noteModal = { ...n };
+  S.error = '';
+  render();
+}
+
+/** 메모 모달 입력값을 상태에 흡수 — syncDraft와 같은 이유. */
+function syncNote() {
+  if (!S.noteModal) return;
+  const v = (id) => document.getElementById(id)?.value;
+  if (v('n-title') === undefined) return; // 모달이 화면에 없으면 그대로 둔다
+  Object.assign(S.noteModal, {
+    title: v('n-title'),
+    body: v('n-body'),
+    category: v('n-category') || null,
+    task_id: v('n-task') ? Number(v('n-task')) : null,
+  });
+}
+
+async function saveNote() {
+  syncNote();
+  const n = S.noteModal;
+  if (!n.title.trim() && !n.body.trim()) { S.error = '제목이나 내용을 입력하세요'; return render(); }
+  await mutate(async () => {
+    await send(`/api/notes/${n.id}`, 'PATCH',
+      { title: n.title, body: n.body, color: n.color ?? '', category: n.category, task_id: n.task_id ?? null });
+    S.noteModal = null;
+  });
+}
+
+/** 빠른 작성 저장. 비어 있으면 만들지 않고 닫기만 한다 — Keep과 같은 동작. */
+async function saveQuick() {
+  const title = document.getElementById('nq-title')?.value.trim() ?? '';
+  const body = document.getElementById('nq-body')?.value ?? '';
+  const category = document.getElementById('nq-category')?.value || null;
+  S.quick = false;
+  if (!title && !body.trim()) return render();
+  await mutate(() => send('/api/notes', 'POST', { title, body, category }));
+}
+
+/** 메모 → 태스크 전환. 새 태스크 모달을 프리필로 열고, 저장이 성공하면 메모를 연결한다. */
+function convertNote(id) {
+  const n = S.notes.find((x) => x.id === Number(id));
+  if (!n) return;
+  openNew();
+  S.modal.title = n.title || n.body.split('\n')[0].slice(0, 80);
+  S.modal.memo = n.body;
+  if (n.category && S.categories.includes(n.category)) S.modal.category = n.category;
+  S.convertNoteId = n.id;
+  render();
 }
 
 // ── 삭제 되돌리기 ────────────────────────────────────
@@ -773,7 +970,7 @@ function commitDelete(reloadAfter = true) {
   if (!p) return;
   clearTimeout(p.timer);
   S.pending = null;
-  const sent = api(`/api/tasks/${p.id}`, { method: 'DELETE', keepalive: true });
+  const sent = api(p.url, { method: 'DELETE', keepalive: true });
   if (reloadAfter) sent.then(reload).catch((e) => { S.error = e.message; render(); });
 }
 
@@ -781,7 +978,18 @@ function requestDelete(id) {
   commitDelete(); // 앞선 대기건은 먼저 확정한다 — 토스트는 항상 하나만 띄운다
   const t = taskById(Number(id));
   if (!t) return;
-  S.pending = { id: t.id, title: t.title, timer: setTimeout(commitDelete, UNDO_MS) };
+  S.pending = { id: t.id, kind: 'task', title: t.title, url: `/api/tasks/${t.id}`, timer: setTimeout(commitDelete, UNDO_MS) };
+  render();
+}
+
+function requestDeleteNote(id) {
+  commitDelete(); // 앞선 대기건 확정 — 토스트는 항상 하나
+  const n = noteById(id);
+  if (!n) return;
+  S.pending = {
+    id: n.id, kind: 'note', title: n.title || n.body.slice(0, 30) || '메모',
+    url: `/api/notes/${n.id}`, timer: setTimeout(commitDelete, UNDO_MS),
+  };
   render();
 }
 
@@ -805,6 +1013,8 @@ addEventListener('pagehide', () => commitDelete(false));
 
 // ── 이벤트 ───────────────────────────────────────────
 document.addEventListener('click', (e) => {
+  // 빠른 작성이 열려 있을 때 바깥을 클릭하면 Keep처럼 저장하고 닫는다 (비어 있으면 그냥 닫힘)
+  if (S.quick && !e.target.closest('.note-quick')) saveQuick();
   const el = e.target.closest('[data-act]');
   if (!el) return;
   const { act, id } = el.dataset;
@@ -843,6 +1053,22 @@ document.addEventListener('click', (e) => {
     S.openSeries.has(key) ? S.openSeries.delete(key) : S.openSeries.add(key);
     return render();
   }
+  if (act === 'quick-open') {
+    S.quick = true; render();
+    return document.getElementById('nq-title')?.focus();
+  }
+  if (act === 'quick-save') return saveQuick();
+  if (act === 'note-open') return openNote(id);
+  if (act === 'note-pin') { const n = noteById(id); return mutate(() => send(`/api/notes/${id}`, 'PATCH', { pinned: !n.pinned })); }
+  if (act === 'note-color') { S.colorPick = S.colorPick === Number(id) ? null : Number(id); return render(); }
+  if (act === 'note-swatch') { S.colorPick = null; return mutate(() => send(`/api/notes/${id}`, 'PATCH', { color: el.dataset.color })); }
+  if (act === 'nm-color') { syncNote(); S.noteModal.color = el.dataset.color; return render(); }
+  if (act === 'note-arch') return mutate(() => send(`/api/notes/${id}`, 'PATCH', { archived: el.dataset.to === '1' }));
+  if (act === 'note-totask') return convertNote(id);
+  if (act === 'note-del') return requestDeleteNote(id);
+  if (act === 'note-del-modal') { const nid = S.noteModal.id; S.noteModal = null; return requestDeleteNote(nid); }
+  if (act === 'note-save') return saveNote();
+  if (act === 'note-close' || (act === 'note-close-bd' && e.target === el)) { S.noteModal = null; S.error = ''; return render(); }
   if (act === 'open') return openTask(id);
   if (act === 'new') return openNew(el.dataset.status);
   if (act === 'del') { e.stopPropagation(); return requestDelete(id); }
@@ -853,7 +1079,7 @@ document.addEventListener('click', (e) => {
   if (act === 'child-add') return openChild();
   if (act === 'sub-toggle') { syncDraft(); return mutate(() => send(`/api/subtasks/${el.dataset.sub}`, 'PATCH', { done: el.dataset.done !== '1' })); }
   if (act === 'sub-del') { syncDraft(); return mutate(() => api(`/api/subtasks/${el.dataset.sub}`, { method: 'DELETE' })); }
-  if (act === 'close' || (act === 'close-bd' && e.target === el)) { S.modal = null; S.error = ''; return render(); }
+  if (act === 'close' || (act === 'close-bd' && e.target === el)) { S.modal = null; S.convertNoteId = null; S.error = ''; return render(); }
   if (act === 'close-arch' || (act === 'close-arch-bd' && e.target === el)) { S.archive = null; S.error = ''; return render(); }
   if (act === 'close-set' || (act === 'close-set-bd' && e.target === el)) { S.settings = null; S.error = ''; return render(); }
   if (act === 'set-kind') { S.settings = el.dataset.kind; S.error = ''; return render(); }
@@ -972,16 +1198,18 @@ document.addEventListener('drop', (e) => {
 
 document.getElementById('q').addEventListener('input', (e) => { S.query = e.target.value; render(); });
 document.getElementById('f-category').addEventListener('change', (e) => { S.fCategory = e.target.value; render(); });
-document.getElementById('f-type').addEventListener('change', (e) => { S.fType = e.target.value; render(); });
-document.getElementById('f-priority').addEventListener('click', () => {
+document.getElementById('f-type')?.addEventListener('change', (e) => { S.fType = e.target.value; render(); });
+document.getElementById('f-priority')?.addEventListener('click', () => {
   S.fPriority = S.fPriority === 'all' ? S.priorities[0] : 'all';
   render();
 });
-document.getElementById('hide-done').addEventListener('click', () => { S.hideDone = !S.hideDone; render(); });
-document.getElementById('open-archive').addEventListener('click', openArchive);
-document.getElementById('open-settings').addEventListener('click', () => {
+document.getElementById('hide-done')?.addEventListener('click', () => { S.hideDone = !S.hideDone; render(); });
+document.getElementById('open-archive')?.addEventListener('click', openArchive);
+document.getElementById('open-settings')?.addEventListener('click', () => {
   S.modal = S.archive = null; S.error = ''; S.settings = 'type'; render();
 });
+document.getElementById('new-task')?.addEventListener('click', () => openNew());
+document.getElementById('show-arch-notes')?.addEventListener('click', () => { S.showArchivedNotes = !S.showArchivedNotes; render(); });
 // 기준일을 바꾸면 대상 건수를 다시 센다
 document.addEventListener('change', (e) => {
   if (e.target.id === 'a-before') return archiveAction(async () => {});
@@ -996,9 +1224,12 @@ document.addEventListener('change', (e) => {
     return mutate(() => send(`/api/options/${id}`, 'PATCH', { name }));
   }
 });
-document.getElementById('new-task').addEventListener('click', () => openNew());
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && (S.modal || S.archive || S.settings)) { S.modal = S.archive = S.settings = null; render(); }
+  if (e.key === 'Escape' && (S.modal || S.archive || S.settings || S.noteModal || S.quick || S.colorPick)) {
+    S.modal = S.archive = S.settings = S.noteModal = null;
+    S.quick = false; S.colorPick = null; S.convertNoteId = null;
+    render();
+  }
   if (e.key === 'Enter' && e.target.id === 'd-newsub') { e.preventDefault(); addSubtask(); }
   if (e.key === 'Enter' && e.target.id === 's-new') { e.preventDefault(); addOption(); }
   if (e.key === 'Enter' && e.target.dataset?.act === 'opt-name') e.target.blur();

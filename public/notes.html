@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MyWork · 개인 업무 관리</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body data-view="notes">
+<div class="app">
+  <aside>
+    <div class="brand"><b>MYWORK</b><span>개인 업무 관리 · 박진혁</span></div>
+    <nav id="nav"></nav>
+    <div style="flex:1"></div>
+    <div class="cats"><h6>업무분류</h6><div id="sidebar-cats" style="display:flex;flex-direction:column;gap:0"></div></div>
+  </aside>
+  <main>
+    <header>
+      <div class="vtitle" id="view-title"></div>
+      <div class="grow"></div>
+      <input id="q" placeholder="메모 검색">
+      <select id="f-category"></select>
+      <button class="toggle" id="show-arch-notes" title="보관한 메모를 봅니다">보관 보기</button>
+      <button class="toggle" id="open-settings" title="업무유형·진행상황·우선순위·업무분류를 관리합니다">설정</button>
+    </header>
+    <div id="viewport"></div>
+  </main>
+</div>
+<div id="modal-root"></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
