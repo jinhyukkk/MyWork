@@ -127,9 +127,11 @@
   .icon-btn:hover { background:#F1F3F6; }
   .cal-head .m { font-size:14px; font-weight:650; min-width:120px; text-align:center; }
   .cal-head .hint { font-size:11.5px; color:#6B7280; }
-  .week { display:grid; grid-template-columns:repeat(7,1fr); border-bottom:1px solid #E3E6EB; background:#FAFBFC; }
+  /* 1fr는 minmax(auto,1fr)이라 칸의 min-content(=일정 제목 길이)가 하한이 된다 —
+     좁은 화면에서 7칸이 컨테이너를 넘겨 오른쪽 날짜가 화면 밖으로 나갔다. */
+  .week { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); border-bottom:1px solid #E3E6EB; background:#FAFBFC; }
   .week div { padding:8px 10px; font-size:11.5px; font-weight:650; }
-  .days { display:grid; grid-template-columns:repeat(7,1fr); }
+  .days { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); }
   .day { min-height:110px; border-right:1px solid #F0F2F5; border-bottom:1px solid #F0F2F5; padding:6px; display:flex; flex-direction:column; gap:4px; }
   .day .n { font-size:11.5px; width:20px; height:20px; display:flex; align-items:center; justify-content:center; border-radius:50%; }
   .day .ev { cursor:pointer; font-size:10.5px; line-height:1.35; padding:3px 6px; border-radius:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -138,8 +140,14 @@
   /* ── 타임라인 ── */
   .gantt-head { display:flex; align-items:center; padding:12px 16px; border-bottom:1px solid #E3E6EB; gap:8px; }
   .gantt-cols { display:flex; border-bottom:1px solid #E3E6EB; background:#FAFBFC; }
+  /* 월 래퍼(flex:1)도 min-width:auto라 .mo들의 최소 폭에 밀려 .g-track보다 넓어진다.
+     .fix는 flex:none이라 영향 없다. */
+  .gantt-cols > div { min-width:0; }
   .gantt-cols .fix { width:280px; flex:none; border-right:1px solid #E3E6EB; padding:7px 14px; font-size:11.5px; font-weight:650; color:#5A6270; }
-  .gantt-cols .mo { padding:7px 10px; font-size:11.5px; font-weight:650; color:#5A6270; border-right:1px solid #E9ECF1; }
+  /* min-width:0이 없으면 flex 기본값(auto) 때문에 월 칸이 라벨의 최소 폭을 강요해
+     월 래퍼가 .g-track보다 넓어진다 → 눈금과 막대가 서로 다른 기준으로 그려진다.
+     .card의 overflow:hidden이 넘친 부분을 잘라 어긋남만 남았다. */
+  .gantt-cols .mo { padding:7px 10px; font-size:11.5px; font-weight:650; color:#5A6270; border-right:1px solid #E9ECF1; min-width:0; overflow:hidden; white-space:nowrap; }
   .g-row { display:flex; border-bottom:1px solid #F0F2F5; align-items:stretch; }
   .g-row:hover { background:#F9FAFC; }
   .g-row .fix { width:280px; flex:none; border-right:1px solid #EEF0F4; padding:10px 14px; cursor:pointer; display:flex; align-items:center; gap:8px; min-width:0; }
