@@ -904,10 +904,16 @@ async function openChild() {
 }
 
 // ── 메모 조작 ────────────────────────────────────────
-function openNote(id) {
+async function openNote(id) {
   const n = noteById(id);
   if (!n) return;
-  S.modal = null; // 태스크 모달의 «연결된 메모»에서 넘어오는 경우
+  // 태스크 모달의 «연결된 메모»에서 넘어오는 경우 — 편집 중이던 내용을 조용히 버리지 않고
+  // 하위 태스크 추가와 같은 규칙으로 먼저 저장한다
+  if (S.modal?.id) {
+    await saveDraft();
+    if (S.modal) return; // 저장 실패 — 에러가 뜬 태스크 모달을 그대로 둔다
+  }
+  S.modal = null;
   S.noteModal = { ...n };
   S.error = '';
   render();
@@ -1233,8 +1239,9 @@ document.addEventListener('change', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && (S.modal || S.archive || S.settings || S.noteModal || S.quick || S.colorPick)) {
+    if (S.quick) return saveQuick(); // 빠른 작성은 닫는 모든 경로가 저장이다 — Keep과 동일 (비어 있으면 그냥 닫힘)
     S.modal = S.archive = S.settings = S.noteModal = null;
-    S.quick = false; S.colorPick = null; S.convertNoteId = null;
+    S.colorPick = null; S.convertNoteId = null;
     render();
   }
   if (e.key === 'Enter' && e.target.id === 'd-newsub') { e.preventDefault(); addSubtask(); }
