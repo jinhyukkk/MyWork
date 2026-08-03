@@ -255,12 +255,24 @@ Claude Code에서 태스크·체크리스트를 직접 다룰 수 있다. 프로
 | `add_subtask` / `update_subtask` / `delete_subtask` | 체크리스트 항목 |
 | `list_categories` | 분류별 태스크 수 |
 | `today_brief` | 오늘 기준 브리핑 — 미완료를 지연 / 오늘 마감 / 예정으로 나눠 반환 |
+| `weekly_review` | 기간 안에 **끝낸 일** — 주간보고·회고용. 기본 구간은 이번 주 월요일~오늘 |
 
 - `overdue: true`는 **마감 지남 + 미완료**만 반환한다. 완료된 지난 태스크는 빠진다.
 - `today_brief`는 `days`(기본 7)로 예정 구간을, `category`로 범위를 좁힐 수 있다. 각 항목은 판단에 필요한 필드만(제목·분류·우선순위·마감·진행률) 담고 `late_days` / `d_day`가 붙는다. 창 밖의 미완료 건수는 `summary.later`로만 센다.
+- `weekly_review`는 `today_brief`의 반대편이다. 브리핑이 «뭐가 남았나»라면 이쪽은 «뭘 끝냈나»다.
+  - `weeks_ago: 0`(기본)은 이번 주 월요일~오늘, `1`은 지난 주 월~일. `since`/`until`로 구간을 직접 줄 수도 있다.
+  - `completed`에는 제목·분류·유형·끝낸 날이, `carried_over`에는 그 구간이 마감이었는데 아직 안 끝난 것(=이월)이 담긴다.
+  - **보관된 태스크도 센다.** 끝낸 일을 빠뜨리는 게 회고 도구의 최악의 실패라서다.
+  - `done_at`이 없어 마감일로 갈음한 건에는 `estimated: true`가 붙는다. 이 기능을 넣기 전에 완료한 태스크가 전부 여기 해당한다.
 - `create_task` / `update_task`에 없는 분류명을 주면 분류를 새로 만든다.
 - 웹 서버와 DB 파일을 공유한다(WAL + `busy_timeout`). MCP로 바꾼 내용은 **브라우저를 새로고침해야** 보인다.
-- `MYWORK_DB_PATH`로 DB 경로를 바꿀 수 있다.
+- `MYWORK_DB_PATH`로 DB 경로를 바꿀 수 있다. 웹 서버(`server.js`)도 같은 환경변수를 본다.
+
+### 아침 브리핑 자동화
+
+평일 아침 08:30(KST)에 `today_brief`를 돌려 브리핑을 받는 루틴을 등록해 뒀다. 크론은 UTC라 `30 23 * * 0-4`(전날 23:30 UTC)다. 결과는 <https://claude.ai/code/routines>에서 본다.
+
+로컬 DB를 읽어야 하므로 **브리지 환경**(로컬 `D:\Personal\MyWork`에 붙는 환경)으로 돌린다. 일반 클라우드 환경은 `data/mywork.db`가 git에 없어 아무것도 못 읽는다. 루틴 프롬프트는 MCP `today_brief`를 먼저 쓰고, 안 되면 `store.listTasks`를 직접 호출하도록 되어 있으며, 둘 다 실패하면 브리핑을 지어내지 말고 실패를 보고하게 해 뒀다. 읽기 전용이라 태스크를 만들거나 고치지 않는다.
 
 ## 데이터
 

@@ -1,6 +1,9 @@
 node_modules/
 data/
 
+# 클라우드 루틴(브리지 환경)이 실행될 때 만드는 임시 워크트리
+.claude/worktrees/
+
 # 디자인 참고본 (Claude 아티팩트 내보내기) — 앱 코드가 아님
 WorkDesk 개인 업무 대시보드/
 WorkDesk 개인 업무 대시보드.zip

@@ -21,6 +21,10 @@ const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0
 const todayIso = () => iso(new Date());
 const parseD = (s) => { const p = s.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); };
 const daysBetween = (from, to) => Math.round((parseD(to) - parseD(from)) / DAY);
+const shiftD = (s, n) => iso(new Date(parseD(s).getTime() + n * DAY));
+/** 그 주의 월요일. 주간 회고의 기본 구간이 «월~오늘»이라 필요하다(일요일은 직전 월요일로 본다). */
+const mondayOf = (s) => shiftD(s, -((parseD(s).getDay() + 6) % 7));
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const str = (description) => ({ type: 'string', description });
 const enumOf = (values, description) => ({ type: 'string', enum: values, description });
@@ -146,6 +150,19 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { id: ID }, required: ['id'] },
   },
   {
+    name: 'weekly_review',
+    description: '기간 안에 끝낸 일을 모아 준다. 주간보고·회고에 쓴다. 기본 구간은 이번 주 월요일~오늘이며, weeks_ago로 지난 주를 본다. 기준은 완료 시각이고, 그 값이 없는 예전 태스크는 마감일로 갈음한다(estimated: true로 표시).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        weeks_ago: { type: 'integer', minimum: 0, maximum: 52, description: '0이면 이번 주(월~오늘), 1이면 지난 주(월~일). 기본 0' },
+        since: str('구간 시작 YYYY-MM-DD. 주면 weeks_ago를 무시한다'),
+        until: str('구간 끝 YYYY-MM-DD (포함)'),
+        category: str('이 분류만 보고 싶을 때'),
+      },
+    },
+  },
+  {
     name: 'today_brief',
     description: '오늘 기준 업무 브리핑. 미완료 태스크를 지연 / 오늘 마감 / 예정으로 나눠서 한 번에 준다. "오늘 뭐 해야 하지" 류의 질문에 쓴다.',
     inputSchema: {
@@ -230,6 +247,50 @@ const HANDLERS = {
   restore_task({ id }) {
     const r = store.updateTask(db, id, { archived: 0 });
     return r.error ? bad(r.error) : text(`태스크 ${id} 복원 완료: ${r.data.title}`);
+  },
+
+  weekly_review({ weeks_ago = 0, since, until, category }) {
+    const today = todayIso();
+    const monday = shiftD(mondayOf(today), -weeks_ago * 7);
+    // 지난 주는 월~일 한 주가 통째로, 이번 주는 아직 안 끝났으니 오늘까지
+    const from = since ?? monday;
+    const to = until ?? (weeks_ago > 0 ? shiftD(monday, 6) : today);
+    if (!DATE.test(from) || !DATE.test(to)) return bad('since·until은 YYYY-MM-DD 형식이어야 합니다');
+    if (from > to) return bad(`구간이 뒤집혔습니다: ${from} → ${to}`);
+
+    // 보관분도 함께 본다 — 끝낸 일을 빠뜨리는 게 회고 도구의 최악의 실패다
+    const all = [...store.listTasks(db, { category }), ...store.listTasks(db, { category, archived: true })];
+    const inRange = (d) => d >= from && d <= to;
+
+    const completed = all
+      .filter((t) => isDone(t.status) && inRange(store.endedOn(t)))
+      .sort((a, b) => store.endedOn(a).localeCompare(store.endedOn(b)))
+      .map((t) => ({
+        id: t.id, title: t.title, category: t.category, type: t.type, done: store.endedOn(t), due: t.due,
+        ...(t.repeat_days ? { repeat_days: t.repeat_days } : {}),
+        ...(t.archived ? { archived: true } : {}),
+        // done_at이 없어 마감일로 갈음한 건 — 실제로 끝낸 날이 아닐 수 있다
+        ...(t.done_at ? {} : { estimated: true }),
+      }));
+
+    // 그 구간이 마감이었는데 아직 안 끝난 것 — 주간보고의 «이월» 항목
+    const carried_over = all
+      .filter((t) => !isDone(t.status) && !t.archived && inRange(t.due))
+      .sort((a, b) => a.due.localeCompare(b.due))
+      .map((t) => ({ id: t.id, title: t.title, category: t.category, status: t.status, due: t.due, late_days: daysBetween(t.due, today) }));
+
+    const tally = (rows) => rows.reduce((acc, r) => ({ ...acc, [r.category]: (acc[r.category] ?? 0) + 1 }), {});
+    return text({
+      range: { since: from, until: to, days: daysBetween(from, to) + 1 },
+      summary: {
+        completed: completed.length,
+        carried_over: carried_over.length,
+        by_category: tally(completed),
+        by_type: completed.reduce((acc, r) => ({ ...acc, [r.type]: (acc[r.type] ?? 0) + 1 }), {}),
+        estimated: completed.filter((r) => r.estimated).length,
+      },
+      completed, carried_over,
+    });
   },
 
   today_brief({ days = 7, category }) {

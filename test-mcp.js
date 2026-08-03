@@ -59,6 +59,7 @@ test('MCP 도구 등록 · 태스크/체크리스트 왕복', async () => {
   assert.deepEqual(listed.tools.map((x) => x.name).sort(), [
     'add_subtask', 'archive_tasks', 'create_task', 'delete_subtask', 'delete_task',
     'list_categories', 'list_tasks', 'restore_task', 'today_brief', 'update_subtask', 'update_task',
+    'weekly_review',
   ]);
 
   // 시드 15건이 그대로 보인다
@@ -105,6 +106,55 @@ test('MCP 도구 등록 · 태스크/체크리스트 왕복', async () => {
   assert.equal((await json('list_tasks')).count, 16);
 
   await call('delete_task', { id: withNewCat.id });
+});
+
+test('weekly_review — 끝낸 일 구간 집계', async () => {
+  const DAY = 86400000;
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const today = (await json('today_brief')).today;
+
+  // 이번 주에 끝낸 일: 만들고 완료로 넘기면 done_at이 오늘로 찍힌다
+  const a = await json('create_task', { title: '이번주 완료건', category: '회고테스트', due: '2020-05-05', start: '2020-05-01' });
+  await call('update_task', { id: a.id, status: '완료' });
+  // 이번 주 마감인데 아직 미완료 → 이월
+  const b = await json('create_task', { title: '이번주 이월건', category: '회고테스트', due: today, start: today, status: '진행 중' });
+
+  const r = await json('weekly_review');
+  assert.ok(r.range.since <= today && r.range.until === today, '기본 구간은 이번 주 월요일~오늘');
+  assert.equal(new Date(r.range.since).getDay(), 1, '구간 시작은 월요일');
+
+  const done = r.completed.find((x) => x.id === a.id);
+  assert.ok(done, '오늘 완료한 건이 들어온다');
+  assert.equal(done.done, today, '마감일(2020-05-05)이 아니라 완료 시각으로 잡힌다');
+  assert.ok(!done.estimated, 'done_at이 있으므로 추정치가 아니다');
+  assert.equal(r.summary.completed, r.completed.length);
+  assert.equal(r.summary.by_category['회고테스트'], 1);
+
+  assert.ok(r.carried_over.some((x) => x.id === b.id), '기간 내 마감 미완료는 이월로 잡힌다');
+  assert.ok(!r.completed.some((x) => x.id === b.id), '미완료가 완료 목록에 섞이면 안 된다');
+
+  // 지난 주 구간에는 안 잡힌다
+  const prev = await json('weekly_review', { weeks_ago: 1 });
+  assert.equal(prev.range.days, 7, '지난 주는 월~일 7일');
+  assert.ok(prev.range.until < r.range.since);
+  assert.ok(!prev.completed.some((x) => x.id === a.id));
+
+  // 명시 구간 + 분류 필터
+  const only = await json('weekly_review', { since: today, until: today, category: '회고테스트' });
+  assert.deepEqual(only.completed.map((x) => x.id), [a.id]);
+  assert.equal(only.range.days, 1);
+
+  // 보관해도 회고에서는 빠지지 않는다
+  await call('archive_tasks', { before: iso(new Date(new Date(today).getTime() + DAY)) });
+  const afterArchive = await json('weekly_review', { since: today, until: today, category: '회고테스트' });
+  assert.ok(afterArchive.completed.find((x) => x.id === a.id)?.archived, '보관분도 끝낸 일로 센다');
+
+  // 뒤집힌 구간은 오류
+  assert.equal((await call('weekly_review', { since: today, until: '2020-01-01' })).isError, true);
+  assert.equal((await call('weekly_review', { since: '어제' })).isError, true);
+
+  await call('delete_task', { id: a.id });
+  await call('delete_task', { id: b.id });
 });
 
 test('today_brief 버킷 분류', async (t) => {

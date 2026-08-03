@@ -279,6 +279,8 @@ export function deleteTask(db, id) {
  * 기준은 완료 시각(done_at)의 날짜 부분이고, 그게 없는 구버전 행에서만 마감일을 근사치로 쓴다.
  */
 const ENDED = "COALESCE(substr(done_at, 1, 10), due)";
+/** 위 ENDED의 JS판 — 끝낸 날. done_at이 없는 구버전 완료 행은 마감일이 근사치다. */
+export const endedOn = (t) => (t.done_at ? t.done_at.slice(0, 10) : t.due);
 
 export function archiveCompleted(db, before) {
   if (!isDate(before)) return fail('before는 YYYY-MM-DD 형식이어야 합니다');
