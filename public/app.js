@@ -969,10 +969,19 @@ const AI_ACT = {
 };
 
 function viewAi() {
-  const bubble = (m) => {
+  const bubble = (m, mi) => {
     const acts = (m.actions ?? []).filter((a) => AI_ACT[a.tool]);
+    const wait = (m.confirm ?? []).filter((c) => c.state === 'wait').length;
+    const confirm = m.confirm?.length ? `<div class="ai-confirm">${m.confirm.map((c, ci) => `<div class="ai-c-row">
+        <span class="ai-c-t">${c.kind} · «${esc(c.title)}»</span>
+        ${c.state === 'wait'
+          ? `<button class="btn-del" data-act="ai-del" data-mi="${mi}" data-ci="${ci}">삭제</button>
+             <button class="btn-ghost" data-act="ai-keep" data-mi="${mi}" data-ci="${ci}">취소</button>`
+          : `<span class="ai-c-st ${c.state}">${AI_DEL_STATE[c.state]}${c.error ? ` — ${esc(c.error)}` : ''}</span>`}
+      </div>`).join('')}
+      ${wait > 1 ? `<button class="btn-del" data-act="ai-del" data-mi="${mi}" data-ci="all">${wait}건 모두 삭제</button>` : ''}</div>` : '';
     return `<div class="ai-msg ${m.role}${m.error ? ' err' : ''}">${esc(m.content)}${acts.length ? `<div class="ai-acts">${acts.map((a) =>
-        `<span class="chip">${a.error ? '✕' : '✓'} ${AI_ACT[a.tool]}${a.input?.title ? ` · ${esc(a.input.title)}` : a.input?.id ? ` #${a.input.id}` : ''}</span>`).join('')}</div>` : ''}</div>`;
+        `<span class="chip">${a.error ? '✕' : '✓'} ${AI_ACT[a.tool]}${a.input?.title ? ` · ${esc(a.input.title)}` : a.input?.id ? ` #${a.input.id}` : ''}</span>`).join('')}</div>` : ''}${confirm}</div>`;
   };
   return `<div class="backdrop" data-act="ai-close-bd"><div class="modal ai-modal" role="dialog" aria-label="AI 지시">
     <div class="mh"><div class="t">AI 지시</div><div style="flex:1"></div>
@@ -987,6 +996,28 @@ function viewAi() {
       <button class="btn-save" data-act="ai-send" ${S.aiBusy ? 'disabled' : ''}>보내기</button>
     </div>
   </div></div>`;
+}
+
+const AI_DEL_STATE = { done: '삭제됨', cancel: '취소함', fail: '실패' };
+
+/**
+ * AI가 올린 삭제 요청을 확정(ok) 또는 취소한다. 삭제는 기존 REST로 바로 보낸다 — AI를 다시 부르지 않는다.
+ * 결과는 assistant 메시지로 남겨, 다음 지시 때 모델이 무엇이 실제로 지워졌는지 알게 한다.
+ */
+async function resolveAiDelete(mi, ci, ok) {
+  const m = S.aiMsgs[mi];
+  const items = (ci === 'all' ? m.confirm : [m.confirm[ci]]).filter((c) => c?.state === 'wait');
+  if (!items.length) return;
+  for (const c of items) {
+    if (!ok) { c.state = 'cancel'; continue; }
+    try { await api(c.url, { method: 'DELETE' }); c.state = 'done'; } catch (e) { c.state = 'fail'; c.error = e.message; }
+  }
+  const names = (st) => items.filter((c) => c.state === st).map((c) => `«${c.title}»`).join(', ');
+  if (names('done')) S.aiMsgs.push({ role: 'assistant', content: `삭제했습니다: ${names('done')}` });
+  if (names('cancel')) S.aiMsgs.push({ role: 'assistant', content: `삭제를 취소했습니다: ${names('cancel')}` });
+  saveAiMsgs();
+  if (ok) await reload().catch(() => {});
+  openAi();
 }
 
 function openAi() {
@@ -1008,7 +1039,7 @@ async function sendAi() {
     const history = S.aiMsgs.filter((m) => !m.error).map(({ role, content }) => ({ role, content }));
     const r = await send('/api/ai', 'POST', { messages: history });
     actions = r.actions;
-    S.aiMsgs.push({ role: 'assistant', content: r.reply, actions });
+    S.aiMsgs.push({ role: 'assistant', content: r.reply, actions, confirm: r.confirm.map((c) => ({ ...c, state: 'wait' })) });
   } catch (e) {
     S.aiMsgs.push({ role: 'assistant', content: e.message, error: true });
   }
@@ -1433,6 +1464,10 @@ document.addEventListener('click', (e) => {
   if (act === 'set-kind') { S.settings = el.dataset.kind; S.optColor = null; S.error = ''; return render(); }
   if (act === 'opt-add') return addOption();
   if (act === 'ai-send') return sendAi();
+  if (act === 'ai-del' || act === 'ai-keep') {
+    const ci = el.dataset.ci === 'all' ? 'all' : Number(el.dataset.ci);
+    return resolveAiDelete(Number(el.dataset.mi), ci, act === 'ai-del');
+  }
   if (act === 'ai-clear') { S.aiMsgs = []; saveAiMsgs(); return openAi(); }
   if (act === 'ai-close' || (act === 'ai-close-bd' && e.target === el)) { S.ai = false; return render(); }
   // 색은 고정 팔레트에서만 고른다 — 자유 선택은 대비를 지킬 수 없고 색이 무한정 늘어난다

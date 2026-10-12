@@ -296,6 +296,16 @@
   .ai-modal .mf textarea { flex:1; resize:none; border:1px solid var(--line); border-radius:7px; padding:8px 10px; font:inherit; font-size:13px; background:var(--surface-2); color:var(--text); outline:none; }
   .ai-modal .mf textarea:focus { border-color:var(--accent); }
   .btn-save[disabled] { opacity:.5; cursor:default; }
+  .ai-confirm { margin-top:8px; padding-top:8px; border-top:1px dashed var(--line); display:flex; flex-direction:column; gap:4px; white-space:normal; }
+  .ai-c-row { display:flex; align-items:center; gap:6px; }
+  .ai-c-t { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ai-confirm .btn-del, .ai-confirm .btn-ghost { height:26px; padding:0 10px; font-size:12px; }
+  .ai-confirm .btn-del { border:1px solid var(--danger); }
+  .ai-confirm .btn-del:hover { background:var(--danger-bg); }
+  .ai-confirm > .btn-del { align-self:flex-end; margin-top:4px; }
+  .ai-c-st { font-size:12px; color:var(--text-3); }
+  .ai-c-st.done { color:var(--danger); }
+  .ai-c-st.fail { color:var(--danger); font-weight:600; }
 
   /* ── 체크리스트 ── */
   .prog { height:5px; flex:none; border-radius:3px; background:var(--surface-3); overflow:hidden; }

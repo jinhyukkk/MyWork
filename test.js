@@ -611,3 +611,39 @@ test('AI 지시 — 도구 호출 루프가 DB를 바꾸고 결과를 돌려준�
   assert.equal((await c({ messages: [{ role: 'system', content: 'x' }] })).status, 400);
   assert.equal(sent.length, 2);
 });
+
+test('AI 지시 — 삭제 도구는 실행하지 않고 확인 대기로 돌려준다', async (t) => {
+  const db = openDb(':memory:');
+  const victim = store.listTasks(db)[0];
+  const sent = [];
+  const replies = [
+    // 같은 턴에 같은 대상 두 번 + 없는 id 하나
+    { stop_reason: 'tool_use', content: [
+      { type: 'tool_use', id: 'd1', name: 'delete_task', input: { id: victim.id } },
+      { type: 'tool_use', id: 'd2', name: 'delete_task', input: { id: victim.id } },
+      { type: 'tool_use', id: 'd3', name: 'delete_task', input: { id: 99999 } },
+    ] },
+    { stop_reason: 'end_turn', content: [{ type: 'text', text: '확인 버튼을 눌러 주세요.' }] },
+  ];
+  const fake = { beta: { messages: { create: async (req) => { sent.push(structuredClone(req)); return replies.shift(); } } } };
+  const srv = createApp(db, () => fake).listen(0);
+  t.after(() => srv.close());
+  const base = `http://localhost:${srv.address().port}`;
+
+  const out = await (await fetch(`${base}/api/ai`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages: [{ role: 'user', content: '첫 태스크 지워줘' }] }),
+  })).json();
+
+  assert.ok(store.listTasks(db).some((x) => x.id === victim.id), 'AI 단계에서는 지워지지 않는다');
+  assert.deepEqual(out.confirm, [{ kind: '태스크', id: victim.id, title: victim.title, url: `/api/tasks/${victim.id}` }], '중복 없이 한 건');
+  // 없는 대상은 그대로 실행돼 오류로 남는다
+  assert.deepEqual(out.actions, [{ tool: 'delete_task', input: { id: 99999 }, error: true }]);
+  const results = sent[1].messages.at(-1).content;
+  assert.equal(results.length, 3, 'tool_use마다 tool_result가 하나씩');
+  assert.match(results[0].content, /아직 실행되지 않았다/);
+
+  // 확인 버튼 = 기존 REST 삭제
+  assert.equal((await fetch(base + out.confirm[0].url, { method: 'DELETE' })).status, 204);
+  assert.ok(!store.listTasks(db).some((x) => x.id === victim.id));
+});
