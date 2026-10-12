@@ -216,7 +216,7 @@ test('설정 항목 — 추가·이름변경·삭제·순서, done 플래그 보
   assert.deepEqual(m0.statuses.map((o) => o.name), ['시작 전', '진행 중', '대기 중', '완료']);
   assert.deepEqual(m0.statuses.map((o) => o.done), [0, 0, 0, 1]);
   assert.deepEqual(m0.statuses.map((o) => o.waiting), [0, 0, 1, 0]);
-  assert.equal(m0.categories.find((o) => o.name === '기타').color, '#6B7280');
+  assert.equal(m0.categories.find((o) => o.name === '기타').color, '#797D84');
   // 업무유형·우선순위는 폐기했다 — meta에도 없고 kind로도 받지 않는다
   assert.ok(!('types' in m0) && !('priorities' in m0), 'meta는 진행상황·업무분류만 내려준다');
   assert.equal((await c('/api/options/type', 'POST', { name: 'x' })).status, 404, '폐기된 kind는 404');

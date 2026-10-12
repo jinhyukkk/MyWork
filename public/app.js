@@ -18,6 +18,20 @@ const seriesKey = (t) => `${t.repeat_days} ${t.title}`;
 // Keep 스타일 파스텔 팔레트. 첫 항목('')은 기본 카드색. 진한 글자가 그대로 읽히는 밝기로 고정한다.
 const NOTE_COLORS = ['', '#F8D7D4', '#FBE7CE', '#FBF3C2', '#DEF0D2', '#CDE9E2', '#D4E4F2', '#E3DEF2', '#EFE0DA'];
 /**
+ * 진행상황·업무분류 팔레트.
+ * 칩 글자색은 .tint가 테마에 맞춰 보정하지만 점·막대·범례는 이 값이 그대로 나간다.
+ * 그래서 라이트(#FFF)·다크(#16191E) «양쪽»에서 비텍스트 3:1을 넘겨야 한다 — 최저 3.10:1.
+ *
+ * 색상환을 균등 분할하는 대신 최적화로 풀었다. 색맹은 색상 축 하나가 사라져 명도가 사실상
+ * 유일한 단서라, 명도를 맞추면 오히려 구분이 막힌다. 그래서 휘도를 일부러 흩뜨리고
+ * (Y 0.135~0.288) 정상·적록청색맹 4가지 시야에서 최소 색차(ΔE_OK)를 최대화했다.
+ * 결과: 정상 0.117(이전 0.076) · 색맹 0.069~0.073(이전 0.016~0.020).
+ * 제약은 hue 간격 30° 이상, 채도 0.09~0.17(형광색은 오래 보면 피로하다).
+ */
+const OPT_COLORS = ['#797D84', '#EA6C36', '#8F5D04', '#759D63', '#0C708E', '#608AF8', '#7750C2', '#B75ABB', '#B13E58'];
+// 팔레트 밖의 색이 이미 저장돼 있으면(자유 선택 시절의 값) 맨 앞에 끼워 그 색을 잃지 않게 한다
+const optPalette = (cur) => (OPT_COLORS.includes(cur) ? OPT_COLORS : [cur, ...OPT_COLORS]);
+/**
  * 그 태스크가 「걸려 있는 날」 — 끝난 건은 실제로 끝낸 날, 나머지는 마감일.
  * 표시(dueMeta)와 정렬이 같은 값을 봐야 완료 행이 화면에 보이는 날짜와 다른 자리에 앉지 않는다.
  * done_at이 없는 구버전 완료 행은 예전처럼 마감일이 근사치다.
@@ -102,6 +116,7 @@ const S = {
   quick: false,         // 빠른 작성 폼 펼침 여부
   quickTask: null,      // 보드 인라인 빠른 추가가 열린 열(진행상황 이름)
   colorPick: null,      // 색상 스와치가 열린 메모 id
+  optColor: null,       // 색상 스와치가 열린 설정 항목 id
   convertNoteId: null,  // 태스크로 전환 중인 메모 id — 태스크 저장 성공 시 연결한다
 };
 
@@ -606,7 +621,7 @@ function noteCard(n) {
       ${n.category ? `<span class="chip tint" style="--c:${CAT_COLOR(n.category)}">${esc(n.category)}</span>` : ''}
       ${task ? `<span class="chip note-task" data-act="open" data-id="${task.id}" title="연결된 태스크 열기">✓ ${esc(task.title)}</span>` : ''}
     </div>` : ''}
-    ${S.colorPick === n.id ? `<div class="note-swatches">${NOTE_COLORS.map((c) =>
+    ${S.colorPick === n.id ? `<div class="swatches">${NOTE_COLORS.map((c) =>
       `<button data-act="note-swatch" data-id="${n.id}" data-color="${c}" class="${(n.color || '') === c ? 'on' : ''}"
         style="background:${c || 'var(--surface)'}" title="${c || '기본'}"></button>`).join('')}</div>` : ''}
     <div class="note-actions">
@@ -743,7 +758,7 @@ function viewSettings() {
       ${S.error ? `<div class="err">${esc(S.error)}</div>` : ''}
       <div class="ck-list">${rows.map((o) => `<div class="ck-item" draggable="true" data-opt="${o.id}">
         <span class="ck-grip" title="드래그해서 순서 변경">⠿</span>
-        <input type="color" class="opt-color" value="${o.color}" data-act="opt-color" data-id="${o.id}" title="색상">
+        <button class="opt-color" data-act="opt-color" data-id="${o.id}" style="background:${o.color}" title="색상 선택"></button>
         <input class="opt-name" value="${esc(o.name)}" data-act="opt-name" data-id="${o.id}">
         ${kind === 'status' ? `<label class="opt-done" title="이 상태면 '끝난 것'으로 셉니다">
           <input type="checkbox" ${o.done ? 'checked' : ''} data-act="opt-done" data-id="${o.id}"> 완료
@@ -752,7 +767,10 @@ function viewSettings() {
           <input type="checkbox" ${o.waiting ? 'checked' : ''} data-act="opt-waiting" data-id="${o.id}"> 대기
         </label>` : `<span class="ck-n">${used(o.name)}건</span>`}
         <button class="x-btn" data-act="opt-del" data-id="${o.id}" data-name="${esc(o.name)}" data-used="${used(o.name)}">×</button>
-      </div>`).join('')}</div>
+      </div>
+      ${S.optColor === o.id ? `<div class="swatches opt-swatches">${optPalette(o.color).map((c) =>
+        `<button data-act="opt-swatch" data-id="${o.id}" data-color="${c}" class="${o.color === c ? 'on' : ''}"
+          style="background:${c}" title="${c}"></button>`).join('')}</div>` : ''}`).join('')}</div>
       <div class="ck-add">
         <input id="s-new" placeholder="${KIND_LABEL[kind]} 추가 후 Enter">
         <button class="btn-sm" data-act="opt-add">추가</button>
@@ -816,7 +834,7 @@ function viewNoteModal() {
             ${S.categories.map((c) => `<option value="${esc(c)}" ${c === n.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}
           </select></div>
         <div class="field"><label>색상</label>
-          <div class="note-swatches" style="padding-top:10px">${NOTE_COLORS.map((c) =>
+          <div class="swatches" style="padding-top:10px">${NOTE_COLORS.map((c) =>
             `<button data-act="nm-color" data-color="${c}" class="${(n.color || '') === c ? 'on' : ''}" style="background:${c || 'var(--surface)'}" title="${c || '기본'}"></button>`).join('')}</div></div>
       </div>
       <div class="field"><label>연결 태스크</label>
@@ -1342,9 +1360,12 @@ document.addEventListener('click', (e) => {
   if (act === 'sub-del') { syncDraft(); return mutate(() => api(`/api/subtasks/${el.dataset.sub}`, { method: 'DELETE' })); }
   if (act === 'close' || (act === 'close-bd' && e.target === el)) return closeTask();
   if (act === 'close-arch' || (act === 'close-arch-bd' && e.target === el)) { S.archive = null; S.error = ''; return render(); }
-  if (act === 'close-set' || (act === 'close-set-bd' && e.target === el)) { S.settings = null; S.error = ''; return render(); }
-  if (act === 'set-kind') { S.settings = el.dataset.kind; S.error = ''; return render(); }
+  if (act === 'close-set' || (act === 'close-set-bd' && e.target === el)) { S.settings = null; S.optColor = null; S.error = ''; return render(); }
+  if (act === 'set-kind') { S.settings = el.dataset.kind; S.optColor = null; S.error = ''; return render(); }
   if (act === 'opt-add') return addOption();
+  // 색은 고정 팔레트에서만 고른다 — 자유 선택은 대비를 지킬 수 없고 색이 무한정 늘어난다
+  if (act === 'opt-color') { S.optColor = S.optColor === Number(id) ? null : Number(id); return render(); }
+  if (act === 'opt-swatch') { S.optColor = null; return mutate(() => send(`/api/options/${id}`, 'PATCH', { color: el.dataset.color })); }
   if (act === 'opt-del') {
     const n = Number(el.dataset.used);
     // 업무분류 삭제 시엔 그 분류를 쓰는 메모도 분류 없음이 되므로 함께 안내한다.
@@ -1481,7 +1502,6 @@ document.addEventListener('change', (e) => {
   // 프로젝트 뷰의 날짜 인라인 편집 — 고르는 순간 저장. 앱에서 시작일이 보이는 유일한 곳이다.
   if (act === 'proj-start') return mutate(() => send(`/api/tasks/${id}`, 'PATCH', { start: e.target.value }));
   if (act === 'proj-due') return mutate(() => send(`/api/tasks/${id}`, 'PATCH', { due: e.target.value || null }));
-  if (act === 'opt-color') return mutate(() => send(`/api/options/${id}`, 'PATCH', { color: e.target.value }));
   if (act === 'opt-done') return mutate(() => send(`/api/options/${id}`, 'PATCH', { done: e.target.checked }));
   if (act === 'opt-waiting') return mutate(() => send(`/api/options/${id}`, 'PATCH', { waiting: e.target.checked }));
   // 이름은 포커스를 벗어날 때만 저장 — 한 글자마다 태스크를 갱신하지 않도록
@@ -1499,6 +1519,7 @@ document.addEventListener('keydown', (e) => {
     if (S.quickChild) return saveQuickChild();
     if (S.modal) return closeTask();     // 저장 안 한 변경이 있으면 확인 후 닫는다
     if (S.noteModal) return closeNote();
+    if (S.optColor) { S.optColor = null; return render(); } // 스와치가 열려 있으면 모달보다 그것부터 닫는다
     S.archive = S.settings = null;
     S.colorPick = null;
     render();
