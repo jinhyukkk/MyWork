@@ -4,7 +4,7 @@
      보조 텍스트는 4.5:1(작은 글자 AA)을, 아이콘·테두리는 3:1(비텍스트)을 기준으로 잡았다. */
   :root {
     color-scheme: light dark;
-    --bg:         light-dark(#FFFFFF, #16191E);  /* 본문 면 — 회색 앱 배경을 없앴다 */
+    --bg:         light-dark(#F4F4F6, #0F1115);  /* 앱 배경 — 콘텐츠는 이 위의 흰 판(--surface)으로 띄운다 */
     --surface:    light-dark(#FFFFFF, #16191E);  /* 카드·헤더·모달 */
     --surface-2:  light-dark(#FAFBFC, #1B1F25);  /* 입력·표 머리 */
     --surface-3:  light-dark(#EEF0F4, #20252C);  /* 보드 열·트랙 */
@@ -28,15 +28,24 @@
     --ok:         light-dark(#2FA84F, #5FD07E);
     --done-bar:   light-dark(#9CB6A4, #4A6B55);  /* 타임라인 완료 막대 */
     --on-accent:  light-dark(#FFFFFF, #0B1020);  /* 액센트 위에 얹는 글자 */
-    /* 사이드바는 본문과 한 톤 차이의 밝은 면이다(검은 사이드바 폐지). 토스트는 어두운 면 유지 */
-    --side-bg:    light-dark(#F7F8FA, #0F1115);
+    /* 사이드바·헤더는 앱 배경과 같은 면이다 — 경계선 없이 흰 판만 떠 보이게 */
+    --side-bg:    var(--bg);
     --side-fg:    var(--text-3);
-    --side-dim:   var(--text-4);
-    --side-hover: light-dark(#ECEEF2, #1C2026);
-    --side-line:  var(--line);
+    /* --text-4는 #F4F4F6 위에서 4.33:1로 AA 미달 — 회색 면 위 보조 글자는 text-3을 쓴다 */
+    --side-dim:   var(--text-3);
+    --side-hover: light-dark(#E9E9EC, #1A1D22);
+    --side-line:  transparent;
     --inv-bg:     light-dark(#14161A, #2C323B);  /* 토스트 */
     --shadow:     light-dark(rgba(20,22,26,.28), rgba(0,0,0,.6));
     --shadow-sm:  light-dark(rgba(20,22,26,.12), rgba(0,0,0,.4));
+    /* ── 판(panel) ──
+       light-dark()는 색에만 쓸 수 있어 그림자 전체를 분기하지 못한다 — 색 토큰 둘로 나눈다.
+       라이트는 옅은 그림자, 다크는 그림자가 안 보이므로 1px 테두리(ring)로 경계를 낸다. */
+    --radius:     12px;
+    --elev-c:     light-dark(rgb(0 0 0 / .04), transparent);
+    --elev-ring:  light-dark(transparent, var(--line));
+    --elev:       0 0 0 1px var(--elev-ring), 0 1px 2px var(--elev-c), 0 4px 14px var(--elev-c);
+    --elev-lg:    0 0 0 1px var(--elev-ring), 0 10px 40px var(--shadow-sm);
   }
 
   html, body { margin:0; padding:0; background:var(--bg); }
@@ -68,49 +77,50 @@
   .app { height:100vh; display:flex; font-family:Pretendard,-apple-system,'Segoe UI',sans-serif; color:var(--text); background:var(--bg); overflow:hidden; }
 
   /* ── 사이드바 ── */
-  aside { width:220px; flex:none; background:var(--side-bg); color:var(--text); border-right:1px solid var(--line); display:flex; flex-direction:column; padding:14px 10px 12px; }
+  aside { width:220px; flex:none; background:var(--side-bg); color:var(--text); display:flex; flex-direction:column; padding:14px 10px 12px; }
   .brand { padding:4px 10px 14px; }
   .brand b { font-size:13px; font-weight:600; }
   nav { display:flex; flex-direction:column; gap:1px; }
   .nav-btn { all:unset; cursor:pointer; display:flex; align-items:center; gap:9px; padding:7px 10px; border-radius:6px; font-size:13px; font-weight:500; color:var(--side-fg); }
   .nav-btn:hover { background:var(--side-hover); color:var(--text); }
-  .nav-btn.on { background:var(--side-hover); color:var(--text); }
+  /* 활성 메뉴는 떠 있는 흰 알약 */
+  .nav-btn.on { background:var(--surface); color:var(--text); box-shadow:var(--elev); }
   .nav-btn .ico { display:flex; color:var(--icon); }
   .nav-btn.on .ico { color:var(--accent); }
   .nav-btn .label { flex:1; }
   .nav-btn .badge { font-size:12px; color:var(--side-dim); font-variant-numeric:tabular-nums; }
-  .cats { border-top:1px solid var(--side-line); padding:12px 10px 4px; display:flex; flex-direction:column; gap:6px; }
-  .cats h6 { margin:0 0 2px; font-size:12px; color:var(--text-4); font-weight:500; }
+  .cats { padding:12px 10px 4px; display:flex; flex-direction:column; gap:6px; }
+  .cats h6 { margin:0 0 2px; font-size:12px; color:var(--text-3); font-weight:600; }
   .cat-btn { all:unset; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12.5px; color:var(--side-fg); padding:3px 0; }
   .cat-btn:hover, .cat-btn.on { color:var(--text); }
   .cat-btn.on .name { font-weight:600; }
   .cat-btn .cdot { width:7px; height:7px; border-radius:50%; flex:none; }
   .cat-btn .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .cat-btn .n { font-variant-numeric:tabular-nums; color:var(--text-4); }
+  .cat-btn .n { font-variant-numeric:tabular-nums; color:var(--text-3); }
 
   /* ── 헤더 ── */
   main { flex:1; min-width:0; display:flex; flex-direction:column; }
-  header { height:48px; flex:none; background:var(--surface); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:6px; padding:0 16px; overflow:hidden; }
-  header .vtitle { font-size:14px; font-weight:600; flex:none; white-space:nowrap; }
+  header { height:56px; flex:none; background:transparent; display:flex; align-items:center; gap:6px; padding:0 24px; overflow:hidden; }
+  header .vtitle { font-size:15px; font-weight:700; flex:none; white-space:nowrap; }
   header .grow { flex:1 1 0; min-width:0; }
-  header input { flex:1 1 110px; min-width:80px; max-width:200px; height:30px; border:1px solid var(--line); border-radius:6px; padding:0 10px; font-size:12.5px; outline:none; background:var(--surface-2); color:var(--text); }
-  header input:focus { border-color:var(--accent); background:var(--surface); }
-  header select { height:30px; border:1px solid var(--line); border-radius:6px; padding:0 6px; font-size:12px; background:var(--surface-2); color:var(--text); outline:none; flex:0 1 130px; min-width:70px; }
-  .btn-primary { all:unset; cursor:pointer; flex:none; height:30px; padding:0 12px; border-radius:6px; background:var(--accent); color:var(--on-accent); font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  header input { flex:1 1 110px; min-width:80px; max-width:220px; height:32px; border:1px solid transparent; border-radius:99px; padding:0 14px; font-size:12.5px; outline:none; background:var(--surface); color:var(--text); box-shadow:var(--elev); }
+  header input:focus { border-color:var(--accent); }
+  header select { height:32px; border:1px solid transparent; border-radius:99px; padding:0 10px; font-size:12px; background:var(--surface); color:var(--text); outline:none; flex:0 1 130px; min-width:70px; box-shadow:var(--elev); }
+  .btn-primary { all:unset; cursor:pointer; flex:none; height:32px; padding:0 14px; border-radius:99px; background:var(--accent); color:var(--on-accent); font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:6px; white-space:nowrap; }
   .btn-primary:hover { background:var(--accent-h); }
   .toggle { all:unset; cursor:pointer; flex:none; height:32px; padding:0 10px; border:1px solid var(--line); border-radius:6px; background:var(--surface-2); color:var(--text-3); font-size:12px; display:flex; align-items:center; white-space:nowrap; }
   .toggle:hover { background:var(--hover); color:var(--text); }
   /* accent-bg 위 글자는 accent-h — accent는 이 배경에서 4.14:1로 AA 미달(accent-h 5.20 / 7.32) */
   .toggle.on { background:var(--accent-bg); border-color:var(--accent); color:var(--accent-h); font-weight:600; }
   /* 아이콘 전용 헤더 버튼 — 라벨은 title·aria-label로만 남긴다 */
-  .toggle.hicon { width:32px; padding:0; justify-content:center; border-color:transparent; background:transparent; color:var(--icon); }
-  .toggle.hicon:hover { background:var(--hover); color:var(--text); }
+  .toggle.hicon { width:32px; padding:0; justify-content:center; border-color:transparent; background:transparent; color:var(--icon); border-radius:50%; }
+  .toggle.hicon:hover { background:var(--side-hover); color:var(--text); }
   .toggle.hicon.on { background:var(--accent-bg); color:var(--accent); border-color:transparent; }
   .hicon .lbl { display:none; }
 
-  #viewport { flex:1; overflow:auto; padding:20px; }
-  .card { background:var(--surface); border:1px solid var(--line); border-radius:10px; }
-  .card-t { font-size:13px; font-weight:650; }
+  #viewport { flex:1; overflow:auto; padding:4px 24px 24px; }
+  .card { background:var(--surface); border-radius:var(--radius); box-shadow:var(--elev); }
+  .card-t { font-size:13px; font-weight:700; }
 
   /* ── 요약 ── */
   .stack { display:flex; flex-direction:column; gap:16px; max-width:1400px; }
@@ -139,7 +149,7 @@
   .brief-h .n { color:var(--text-4); font-weight:600; font-variant-numeric:tabular-nums; }
   .brief-h .btn-sm { height:26px; line-height:24px; padding:0 10px; font-size:11.5px; }
   /* btn-sm(all:unset)을 쓰지 않는다 — appearance까지 지워져 date 입력의 달력 아이콘이 사라진다 */
-  .resched-date { height:26px; border:1px solid var(--line); border-radius:7px; padding:0 7px; font-size:11.5px; color:var(--text-2); background:var(--surface); }
+  .resched-date { height:26px; border:1px solid var(--line); border-radius:99px; padding:0 7px; font-size:11.5px; color:var(--text-2); background:var(--surface); }
   .resched-date:disabled { color:var(--disabled); background:var(--surface-2); }
 
   /* ── 목록 ── */
@@ -154,7 +164,7 @@
   .trow .main .tt { font-weight:550; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .trow .main .td { font-size:11px; color:var(--text-4); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .trow .cell { padding:0 12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .chip { font-size:11px; padding:3px 7px; border-radius:4px; font-weight:600; white-space:nowrap; }
+  .chip { font-size:11.5px; padding:2px 8px; border-radius:99px; font-weight:500; white-space:nowrap; }
   /* ── 사용자 지정 색 ──
      설정에서 고른 색을 글자에 그대로 쓰면 대비가 무너진다(라이트에서 노랑 1.5:1, 다크에서 남색 3.3:1).
      색상(h)은 건드리지 않고 명도(l)만 테마 쪽으로 당긴다 — 사용자가 고른 색은 알아볼 수 있어야 한다.
@@ -164,7 +174,7 @@
     color: var(--tc);
     background: color-mix(in oklab, var(--c) 14%, var(--surface));
   }
-  .x-btn { all:unset; cursor:pointer; width:22px; height:22px; border-radius:4px; display:flex; align-items:center; justify-content:center; color:var(--icon); font-size:14px; }
+  .x-btn { all:unset; cursor:pointer; width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:var(--icon); font-size:14px; }
   .x-btn:hover { background:var(--danger-bg); color:var(--danger); }
   .empty { padding:48px; text-align:center; color:var(--text-4); font-size:13px; }
 
@@ -204,7 +214,7 @@
 
   /* ── 캘린더 ── */
   .cal-head { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); }
-  .icon-btn { all:unset; cursor:pointer; height:28px; min-width:28px; padding:0 8px; border:1px solid var(--line); border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--text-3); }
+  .icon-btn { all:unset; cursor:pointer; height:28px; min-width:28px; padding:0 8px; border:1px solid var(--line); border-radius:99px; display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--text-3); }
   .icon-btn:hover { background:var(--hover); }
   .cal-head .m { font-size:14px; font-weight:650; min-width:120px; text-align:center; }
   .cal-head .hint { font-size:11.5px; color:var(--text-4); }
@@ -283,13 +293,13 @@
   .field input, .field select { height:38px; padding:0 10px; }
   .field textarea { padding:10px 12px; resize:vertical; line-height:1.5; }
   .field :focus { border-color:var(--accent); }
-  .btn-ghost { all:unset; cursor:pointer; height:36px; padding:0 16px; border:1px solid var(--line); border-radius:7px; font-size:12.5px; font-weight:600; color:var(--text-2); }
+  .btn-ghost { all:unset; cursor:pointer; height:36px; padding:0 16px; border:1px solid var(--line); border-radius:99px; font-size:12.5px; font-weight:600; color:var(--text-2); }
   .btn-ghost:hover { background:var(--hover); }
-  .btn-save { all:unset; cursor:pointer; height:36px; padding:0 20px; border-radius:7px; background:var(--accent); color:var(--on-accent); font-size:12.5px; font-weight:650; }
+  .btn-save { all:unset; cursor:pointer; height:36px; padding:0 20px; border-radius:99px; background:var(--accent); color:var(--on-accent); font-size:12.5px; font-weight:650; }
   .btn-save:hover { background:var(--accent-h); }
-  .btn-del { all:unset; cursor:pointer; height:36px; padding:0 14px; border-radius:7px; font-size:12.5px; font-weight:600; color:var(--danger); }
+  .btn-del { all:unset; cursor:pointer; height:36px; padding:0 14px; border-radius:99px; font-size:12.5px; font-weight:600; color:var(--danger); }
   .btn-del:hover { background:var(--danger-bg); }
-  .btn-sm { all:unset; cursor:pointer; flex:none; white-space:nowrap; height:34px; line-height:32px; padding:0 14px; border:1px solid var(--line); border-radius:7px; font-size:12.5px; font-weight:600; color:var(--text-2); }
+  .btn-sm { all:unset; cursor:pointer; flex:none; white-space:nowrap; height:34px; line-height:32px; padding:0 14px; border:1px solid var(--line); border-radius:99px; font-size:12.5px; font-weight:600; color:var(--text-2); }
   .btn-sm:hover { background:var(--hover); border-color:var(--accent); color:var(--accent); }
   .btn-sm[disabled] { cursor:default; color:var(--disabled); background:var(--surface-2); }
   .btn-sm[disabled]:hover { background:var(--surface-2); border-color:var(--line); color:var(--disabled); }
@@ -452,7 +462,7 @@
     .nav-btn { padding:7px 9px; font-size:12.5px; white-space:nowrap; flex:none; }
     .nav-btn .label { flex:none; }
     .nav-btn .ico { display:none; }
-    .nav-btn.on { box-shadow:inset 0 -2px 0 var(--accent); }
+    .nav-btn.on { background:var(--surface); box-shadow:var(--elev); }
     .cats { display:none; } /* 분류 토글은 헤더의 분류 select가 대신한다 */
     header { height:auto; flex-wrap:wrap; padding:10px 12px; overflow:visible; }
     header .grow { display:none; }
