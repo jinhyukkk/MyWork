@@ -1456,17 +1456,23 @@ async function saveQuickBar(keepOpen) {
   const p = quickParsed(text);
   if (!keepOpen) closeQuickBar();
   if (!p.title) return;
+  // 전송 전에 비워 중복 저장을 막는다 (연타 Enter·Enter 후 Esc 시 같은 제목이 두 번 POST되는 것 방지)
+  if (keepOpen) { input.value = ''; drawQuickChips(); }
   try {
     const t = await send('/api/tasks', 'POST', {
       title: p.title, status: firstOpen(), category: p.category,
       start: TODAY, due: p.due, memo: '', repeat_days: 0, parent_id: null,
     });
-    if (keepOpen && S.qbar) { input.value = ''; drawQuickChips(); setQuickErr(''); }
+    setQuickErr('');
     showNotice(t);
     await reload();
   } catch (e) {
-    // 실패하면 친 내용을 잃지 않게 바를 다시 열어 에러와 함께 돌려준다
+    // 실패하면 친 내용을 잃지 않게 돌려준다 — 바가 닫혔으면 다시 열고, 열려 있고 비어 있으면 입력값을 복원
     if (!S.qbar) openQuickBar(text);
+    else {
+      const cur = document.getElementById('qb-input');
+      if (cur && !cur.value) { cur.value = text; drawQuickChips(); }
+    }
     setQuickErr(e.message);
   }
 }
@@ -1764,7 +1770,7 @@ document.addEventListener('change', (e) => {
 document.addEventListener('keydown', (e) => {
   if (S.qbar) {
     // 한글 조합 중 Enter는 조합 확정용이다 — 저장으로 가로채지 않는다
-    if (e.key === 'Enter' && e.target.id === 'qb-input' && !e.isComposing) {
+    if (e.key === 'Enter' && e.target.id === 'qb-input' && !e.isComposing && !e.repeat) {
       e.preventDefault();
       return e.shiftKey ? quickToModal() : saveQuickBar(true);
     }
