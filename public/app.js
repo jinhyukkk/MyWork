@@ -436,7 +436,7 @@ function viewBoard(list) {
           ${parent ? `<div class="parent-line" data-act="open" data-id="${parent.id}" title="상위 태스크: ${esc(parent.title)}">↳ ${esc(parent.title)}</div>` : ''}
           <div class="tt">${esc(t.title)}</div>
           <div class="meta">
-            <span class="cat"><i class="cdot" style="background:${CAT_COLOR(t.category)}"></i>${esc(t.category)}</span>
+            <span class="cat tint" style="--c:${CAT_COLOR(t.category)}">${esc(t.category)}</span>
             ${p.total ? `<span title="체크리스트 ${p.done}/${p.total}">☑ ${p.done}/${p.total}</span>` : ''}
             ${childBadge(c, t.id)}
             ${t.repeat_days ? `<span title="${repeatLabel(t.repeat_days)} 반복">↻</span>` : ''}

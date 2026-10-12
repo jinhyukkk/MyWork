@@ -169,11 +169,11 @@
   .empty { padding:48px; text-align:center; color:var(--text-4); font-size:13px; }
 
   /* ── 보드 ──
-     열은 배경 없이 머리만 두고 카드가 면을 이룬다. 폭 272px 고정 — 상태가 늘면 열이 좁아지는 대신 가로로 스크롤한다. */
+     열은 회색 박스로 경계를 분명히 한다(투명 열은 경계가 흐려 되돌렸다). 폭 272px 고정 — 상태가 늘면 열이 좁아지는 대신 가로로 스크롤한다. */
   /* min-height 100% — 가로 스크롤바가 가장 긴 열 밑이 아니라 화면 바닥에 붙게 */
   .board { display:flex; gap:12px; align-items:flex-start; overflow-x:auto; padding-bottom:8px; min-height:100%; }
-  .bcol { flex:0 0 272px; min-height:160px; padding:4px; border-radius:8px; display:flex; flex-direction:column; gap:6px; }
-  .bcol.drag { background:color-mix(in oklab, var(--accent-bg) 55%, transparent); }
+  .bcol { flex:0 0 272px; min-height:160px; padding:10px; background:var(--surface-3); border:1px solid var(--line); border-radius:10px; display:flex; flex-direction:column; gap:8px; }
+  .bcol.drag { border-color:var(--accent); }
   .bcol.dragging { opacity:.45; }
   /* 열 삽입선은 좌우로 — 체크리스트(위아래)와 방향만 다르다 */
   .bcol.over { box-shadow:inset 3px 0 0 var(--accent); }
@@ -194,8 +194,8 @@
   .bcard.done .tt { text-decoration:line-through; }
   .bcard .tt { font-size:13px; font-weight:500; line-height:1.45; text-wrap:pretty; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
   .bcard .meta { display:flex; align-items:center; gap:10px; font-size:12px; color:var(--text-3); min-width:0; }
-  .bcard .meta .cat { display:flex; align-items:center; gap:5px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .bcard .meta .cdot { width:7px; height:7px; border-radius:50%; flex:none; }
+  /* 분류는 색 배경 칩 — 점보다 한눈에 갈린다. 글자색 보정은 .tint가 맡는다 */
+  .bcard .meta .cat { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; font-weight:500; padding:2px 7px; border-radius:4px; }
   .bcard .meta .sb-badge { background:none; padding:0; margin:0; text-decoration:none; font-size:12px; font-weight:400; color:inherit; }
   .bcard .meta .sb-badge.late { color:var(--danger); }
   .bcard .meta .du { margin-left:auto; flex:none; font-variant-numeric:tabular-nums; white-space:nowrap; }
