@@ -295,18 +295,21 @@
   /* ── 모달 ── */
   .backdrop { position:fixed; inset:0; background:rgba(20,22,26,.42); display:flex; align-items:center; justify-content:center; z-index:50; }
   /* 560px 고정이면 좁은 화면에서 모달이 화면 밖으로 나간다 — min()이면 브레이크포인트가 필요 없다 */
-  .modal { width:min(560px, calc(100vw - 24px)); max-height:88dvh; overflow:auto; background:var(--surface); border-radius:12px; box-shadow:0 24px 64px var(--shadow); display:flex; flex-direction:column; }
-  .modal .mh { padding:18px 22px; border-bottom:1px solid var(--line-2); display:flex; align-items:center; }
-  .modal .mh .t { font-size:15px; font-weight:650; }
-  .modal .mb { padding:20px 22px; display:flex; flex-direction:column; gap:16px; }
-  .modal .mf { padding:14px 22px; border-top:1px solid var(--line-2); display:flex; align-items:center; gap:10px; }
+  .modal { width:min(560px, calc(100vw - 24px)); max-height:88dvh; overflow:auto; background:var(--surface); border-radius:16px; box-shadow:var(--elev-lg); display:flex; flex-direction:column; }
+  .modal .mh { padding:20px 24px 4px; display:flex; align-items:center; }
+  .modal .mh .t { font-size:16px; font-weight:700; }
+  .modal .mb { padding:16px 24px; display:flex; flex-direction:column; gap:16px; }
+  .modal .mf { padding:12px 24px 20px; display:flex; align-items:center; gap:8px; }
   .row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .field { display:flex; flex-direction:column; gap:6px; }
-  .field label { font-size:11.5px; font-weight:650; color:var(--text-3); }
-  .field input, .field select, .field textarea { border:1px solid var(--line); border-radius:7px; font-size:13px; outline:none; background:var(--surface); color:var(--text); }
-  .field input, .field select { height:38px; padding:0 10px; }
-  .field textarea { padding:10px 12px; resize:vertical; line-height:1.5; }
-  .field :focus { border-color:var(--accent); }
+  .field label { font-size:12px; font-weight:600; color:var(--text-3); }
+  .field input, .field select, .field textarea { border:1px solid transparent; border-radius:10px; font-size:13px; outline:none; background:var(--surface-2); color:var(--text); }
+  .field input, .field select { height:38px; padding:0 12px; }
+  .field select, .field input[type=date] { border-radius:99px; padding:0 14px; }
+  .field textarea { padding:10px 12px; resize:vertical; line-height:1.55; }
+  .field :focus { border-color:var(--accent); background:var(--surface); }
+  /* 제목은 모달의 주인공 — 칸이 아니라 큰 글자로 */
+  #d-title { height:auto; padding:6px 12px; font-size:18px; font-weight:700; }
   .btn-ghost { all:unset; cursor:pointer; height:36px; padding:0 16px; border:1px solid var(--line); border-radius:99px; font-size:12.5px; font-weight:600; color:var(--text-2); }
   .btn-ghost:hover { background:var(--hover); }
   .btn-save { all:unset; cursor:pointer; height:36px; padding:0 20px; border-radius:99px; background:var(--accent); color:var(--on-accent); font-size:12.5px; font-weight:650; }
@@ -324,13 +327,13 @@
   .ai-modal .mh .btn-ghost { height:28px; padding:0 10px; margin-right:8px; font-size:12px; }
   .ai-log { flex:1; overflow:auto; gap:10px; }
   .ai-hint { font-size:12.5px; color:var(--text-3); line-height:1.7; }
-  .ai-msg { max-width:85%; padding:9px 12px; border-radius:10px; font-size:13px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
+  .ai-msg { max-width:85%; padding:10px 14px; border-radius:16px; font-size:13px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
   .ai-msg.user { align-self:flex-end; background:var(--accent); color:var(--on-accent); }
-  .ai-msg.assistant { align-self:flex-start; background:var(--surface-2); border:1px solid var(--line); }
+  .ai-msg.assistant { align-self:flex-start; background:var(--surface-2); }
   .ai-msg.err { color:var(--danger); }
   .ai-msg.busy { color:var(--text-3); }
   .ai-acts { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; white-space:normal; }
-  .ai-modal .mf textarea { flex:1; resize:none; border:1px solid var(--line); border-radius:7px; padding:8px 10px; font:inherit; font-size:13px; background:var(--surface-2); color:var(--text); outline:none; }
+  .ai-modal .mf textarea { flex:1; resize:none; border:1px solid transparent; border-radius:14px; padding:9px 14px; font:inherit; font-size:13px; background:var(--surface-2); color:var(--text); outline:none; }
   .ai-modal .mf textarea:focus { border-color:var(--accent); }
   .btn-save[disabled] { opacity:.5; cursor:default; }
   .ai-confirm { margin-top:8px; padding-top:8px; border-top:1px dashed var(--line); display:flex; flex-direction:column; gap:4px; white-space:normal; }
@@ -373,8 +376,8 @@
   .bcard .tags .sb-badge { margin-right:0; padding:2px 6px; border-radius:4px; }
 
   /* ── 삭제 되돌리기 토스트 ── */
-  .toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:60; display:flex; align-items:center; gap:14px;
-           background:var(--inv-bg); color:#F4F5F7; font-size:12.5px; padding:11px 14px; border-radius:8px; box-shadow:0 8px 24px var(--shadow); }
+  .toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:60; display:flex; align-items:center; gap:16px;
+           background:var(--inv-bg); color:#F4F5F7; font-size:12.5px; padding:10px 18px; border-radius:99px; box-shadow:0 8px 24px var(--shadow); }
   .toast .t { max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .toast button { all:unset; cursor:pointer; font-size:12.5px; font-weight:650; color:#8FB4FF; }
   .toast button:hover { color:#fff; text-decoration:underline; }
@@ -394,7 +397,7 @@
   .ck-t { flex:1; font-size:13px; line-height:1.4; text-wrap:pretty; }
   .ck-t.done { text-decoration:line-through; color:var(--text-4); }
   .ck-add { display:flex; gap:8px; margin-top:8px; }
-  .ck-add input { flex:1; height:34px; border:1px solid var(--line); border-radius:7px; padding:0 10px; font-size:12.5px; outline:none; background:var(--surface-2); color:var(--text); }
+  .ck-add input { flex:1; height:34px; border:1px solid transparent; border-radius:99px; padding:0 14px; font-size:12.5px; outline:none; background:var(--surface-2); color:var(--text); }
   .ck-add input:focus { border-color:var(--accent); background:var(--surface); }
 
   /* ── 메모 (Keep 스타일) ── */
@@ -431,12 +434,12 @@
   .nq-foot select { height:30px; border:1px solid var(--line); border-radius:99px; font-size:12px; background:var(--surface-2); color:var(--text); outline:none; padding:0 10px; }
 
   /* ── 설정 ── */
-  .tabs { display:flex; gap:4px; border-bottom:1px solid var(--line-2); }
-  .tab { all:unset; cursor:pointer; padding:8px 14px; font-size:12.5px; font-weight:600; color:var(--text-4); border-bottom:2px solid transparent; margin-bottom:-1px; }
+  .tabs { display:flex; gap:2px; padding:3px; background:var(--surface-2); border-radius:99px; align-self:flex-start; }
+  .tab { all:unset; cursor:pointer; padding:6px 14px; font-size:12.5px; font-weight:600; color:var(--text-3); border-radius:99px; }
   .tab:hover { color:var(--text); }
-  .tab.on { color:var(--accent); border-bottom-color:var(--accent); }
+  .tab.on { background:var(--surface); color:var(--text); box-shadow:var(--elev); }
   /* 색상 견본 버튼 — 누르면 아래로 팔레트가 펼쳐진다(배경색은 인라인) */
-  .opt-color { all:unset; cursor:pointer; flex:none; width:24px; height:24px; border:1px solid var(--line); border-radius:5px; box-sizing:border-box; }
+  .opt-color { all:unset; cursor:pointer; flex:none; width:24px; height:24px; border:1px solid var(--line); border-radius:50%; box-sizing:border-box; }
   .opt-color:hover { transform:scale(1.1); }
   .opt-swatches { padding:0 0 8px 26px; } /* ⠿ 그립 폭만큼 들여쓴다 */
   .opt-name { flex:1; min-width:0; height:30px; border:1px solid transparent; border-radius:6px; padding:0 8px; font-size:13px; background:transparent; color:var(--text); outline:none; }
