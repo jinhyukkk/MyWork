@@ -384,6 +384,24 @@
   .toast .t { max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .toast button { all:unset; cursor:pointer; font-size:12.5px; font-weight:650; color:#8FB4FF; }
   .toast button:hover { color:#fff; text-decoration:underline; }
+  .toast button + button { margin-left:-4px; }
+
+  /* ── 빠른 입력 바 ── 모달이 아니다: 딤 없이 상단에 떠 있고 뒤 화면은 그대로 쓸 수 있다.
+     .app 밖(body 직속)에 그려지므로 글꼴·색을 직접 준다. */
+  .qbar { position:fixed; top:12vh; left:50%; transform:translateX(-50%); z-index:55; width:min(560px, calc(100vw - 24px));
+          background:var(--surface); color:var(--text); border-radius:var(--radius); box-shadow:var(--elev-lg);
+          padding:6px 6px 10px; display:flex; flex-direction:column; gap:6px;
+          font-family:Pretendard,-apple-system,'Segoe UI',sans-serif; }
+  .qbar input { all:unset; font:inherit; height:42px; padding:0 12px; font-size:15px; font-weight:500; }
+  /* 바 전체가 입력창 — 바 안쪽에 링을 하나 더 그리면 겹쳐 보인다 */
+  .qbar input:focus-visible { outline:none !important; }
+  .qbar input::placeholder { color:var(--text-4); }
+  .qb-chips { display:flex; gap:6px; flex-wrap:wrap; align-items:center; padding:0 10px; min-height:22px; }
+  .qb-chips .due { font-size:12px; font-weight:500; color:var(--text-2); background:var(--surface-2); padding:2px 8px; border-radius:99px; }
+  .qb-chips .guess { opacity:.6; }
+  .qbar .err { padding:0 10px; }
+  .qbar .err:empty { display:none; }
+  .qb-hint { padding:0 10px; font-size:11.5px; color:var(--text-4); }
   .ck-hint { font-size:12px; color:var(--text-4); padding:6px 2px; }
   .ck-list { display:flex; flex-direction:column; }
   .ck-item { display:flex; align-items:center; gap:9px; padding:5px 2px; border-bottom:1px solid var(--line-2); }

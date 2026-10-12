@@ -1,6 +1,7 @@
 // MyWork 프론트 — 상태 변경 시 전체 재렌더. 이벤트는 위임으로 처리.
 import { checklist, checklistTotals } from './progress.js';
 import { groupTasks, nest } from './listgroup.js';
+import { parseQuick } from './quickparse.js';
 
 const DAY = 86400000;
 // 프로젝트 뷰(/project)는 여기 없다 — 메뉴가 아니라 목록·보드의 ⑂ 배지와 모달에서 들어간다.
@@ -141,6 +142,8 @@ const S = {
   noteModal: null,      // 메모 편집 모달
   quick: false,         // 빠른 작성 폼 펼침 여부
   quickTask: null,      // 보드 인라인 빠른 추가가 열린 열(진행상황 이름)
+  qbar: false,          // 빠른 입력 바 열림 여부 — 바 DOM은 render() 밖의 qbarRoot에 따로 그린다
+  notice: null,         // 빠른 입력으로 방금 추가한 태스크 알림 { id, title, timer }
   colorPick: null,      // 색상 스와치가 열린 메모 id
   optColor: null,       // 색상 스와치가 열린 설정 항목 id
   convertNoteId: null,  // 태스크로 전환 중인 메모 id — 태스크 저장 성공 시 연결한다
@@ -1395,12 +1398,108 @@ function undoPending() {
   render();
 }
 
+// ── 빠른 입력 바 ─────────────────────────────────────
+// render()는 #modal-root를 통째로 갈아끼운다. 그 안에 두면 저장 뒤 reload·토스트 타이머의 재렌더가
+// 타이핑 중인 입력값과 한글 조합을 지운다 — 그래서 바는 전용 노드에 열 때 한 번만 그린다.
+const qbarRoot = document.body.appendChild(document.createElement('div'));
+
+/** 해석 결과 + 기본 분류. guessed = 문장에서 분류를 못 찾아 기본값을 쓴 경우(칩을 흐리게). */
+function quickParsed(text) {
+  const p = parseQuick(text, { today: TODAY, categories: S.categories });
+  const fallback = S.fCategory !== 'all' ? S.fCategory : S.categories[0];
+  return { ...p, category: p.category ?? fallback, guessed: !p.category };
+}
+
+/** 바 아래 칩 — 확인 단계가 아니라 «이렇게 들어간다»를 보여 주는 표시. 재렌더 없이 이 영역만 고친다. */
+function drawQuickChips() {
+  const input = document.getElementById('qb-input');
+  const box = document.getElementById('qb-chips');
+  if (!input || !box) return;
+  const p = quickParsed(input.value);
+  box.innerHTML = p.title ? `
+    ${p.due ? `<span class="due">📅 ${md(p.due)} (${'일월화수목금토'[parseD(p.due).getDay()]})</span>` : ''}
+    <span class="chip tint ${p.guessed ? 'guess' : ''}" style="--c:${CAT_COLOR(p.category)}">${esc(p.category)}</span>` : '';
+}
+
+function setQuickErr(msg) {
+  const el = document.getElementById('qb-err');
+  if (el) el.textContent = msg;
+}
+
+function openQuickBar(text = '') {
+  S.qbar = true;
+  qbarRoot.innerHTML = `<div class="qbar" role="dialog" aria-label="빠른 입력">
+    <input id="qb-input" autocomplete="off" aria-describedby="qb-hint"
+           placeholder="할 일 한 줄 — 예: 금요일까지 #인사시스템 발령 에러 확인">
+    <div class="qb-chips" id="qb-chips" aria-live="polite"></div>
+    <div class="err" id="qb-err"></div>
+    <div class="qb-hint" id="qb-hint">Enter 저장 · Shift+Enter 자세히 · Esc 닫기(저장)</div>
+  </div>`;
+  const input = document.getElementById('qb-input');
+  input.value = text;
+  drawQuickChips();
+  input.focus();
+}
+
+function closeQuickBar() {
+  S.qbar = false;
+  qbarRoot.innerHTML = '';
+}
+
+/**
+ * Enter(keepOpen) = 저장하고 바를 비운 채 유지(연속 입력). Esc·바깥 클릭 = 저장하고 닫기.
+ * 닫는 모든 경로가 저장이다 — 보드 빠른 추가·메모 빠른 작성과 같은 규칙. 비어 있으면 그냥 닫힌다.
+ */
+async function saveQuickBar(keepOpen) {
+  const input = document.getElementById('qb-input');
+  const text = input?.value ?? '';
+  const p = quickParsed(text);
+  if (!keepOpen) closeQuickBar();
+  if (!p.title) return;
+  try {
+    const t = await send('/api/tasks', 'POST', {
+      title: p.title, status: firstOpen(), category: p.category,
+      start: TODAY, due: p.due, memo: '', repeat_days: 0, parent_id: null,
+    });
+    if (keepOpen && S.qbar) { input.value = ''; drawQuickChips(); setQuickErr(''); }
+    showNotice(t);
+    await reload();
+  } catch (e) {
+    // 실패하면 친 내용을 잃지 않게 바를 다시 열어 에러와 함께 돌려준다
+    if (!S.qbar) openQuickBar(text);
+    setQuickErr(e.message);
+  }
+}
+
+/** Shift+Enter — 해석 결과를 채운 전체 모달. 채운 값은 «변경»으로 남겨 그냥 닫으면 확인 창이 뜬다. */
+function quickToModal() {
+  const p = quickParsed(document.getElementById('qb-input')?.value ?? '');
+  closeQuickBar();
+  openNew();
+  Object.assign(S.modal, { title: p.title, category: p.category, due: p.due });
+  render();
+}
+
+/** 추가 알림. 지연 확정(삭제·완료) 토스트가 있으면 그쪽이 우선이라 화면에는 그 뒤에 보인다. */
+function showNotice(t) {
+  clearTimeout(S.notice?.timer);
+  S.notice = { id: t.id, title: t.title, timer: setTimeout(() => { S.notice = null; render(); }, UNDO_MS) };
+}
+
 function viewToast() {
   const p = S.pending;
-  if (!p) return '';
+  if (p) {
+    return `<div class="toast" role="status">
+      <span class="t">«${esc(p.title)}» ${p.kind === 'complete' ? '완료' : '삭제됨'}</span>
+      <button data-act="undo">되돌리기</button>
+    </div>`;
+  }
+  const n = S.notice;
+  if (!n) return '';
   return `<div class="toast" role="status">
-    <span class="t">«${esc(p.title)}» ${p.kind === 'complete' ? '완료' : '삭제됨'}</span>
-    <button data-act="undo">되돌리기</button>
+    <span class="t">«${esc(n.title)}» 추가됨</span>
+    <button data-act="notice-edit">수정</button>
+    <button data-act="notice-undo">되돌리기</button>
   </div>`;
 }
 
@@ -1409,6 +1508,8 @@ addEventListener('pagehide', () => commitPending(false));
 
 // ── 이벤트 ───────────────────────────────────────────
 document.addEventListener('click', (e) => {
+  // 빠른 입력 바 바깥 클릭 = 저장하고 닫기. 바를 여는 버튼·토스트(수정/되돌리기)는 바깥으로 치지 않는다.
+  if (S.qbar && !e.target.closest('.qbar, .toast, #new-task')) saveQuickBar(false);
   // 빠른 작성이 열려 있을 때 바깥을 클릭하면 Keep처럼 저장하고 닫는다 (비어 있으면 그냥 닫힘)
   if (S.quick && !e.target.closest('.note-quick')) saveQuick();
   if (S.quickTask && !e.target.closest('.bq-form')) saveQuickTask(); // 동기 구간에서 먼저 닫히므로 다른 열의 ＋와 겹쳐도 안전
@@ -1472,6 +1573,15 @@ document.addEventListener('click', (e) => {
   if (act === 'del') { e.stopPropagation(); return requestDelete(id); }
   if (act === 'del-modal') { const t = S.modal.id; S.modal = null; return requestDelete(t); }
   if (act === 'undo') return undoPending();
+  if (act === 'notice-edit' || act === 'notice-undo') {
+    const nid = S.notice?.id;
+    clearTimeout(S.notice?.timer);
+    S.notice = null;
+    if (!nid) return render();
+    if (act === 'notice-undo') return mutate(() => api(`/api/tasks/${nid}`, { method: 'DELETE' })); // 막 만든 건이라 CASCADE 걱정이 없다
+    if (S.qbar) saveQuickBar(false); // 수정으로 넘어가면 바는 닫는다 — 닫는 경로는 저장
+    return openTask(nid);
+  }
   if (act === 'save') return saveDraft();
   if (act === 'sub-add') return addSubtask();
   if (act === 'log-add') return addProgress();
@@ -1613,6 +1723,7 @@ document.addEventListener('drop', (e) => {
   if (S.tasks.find((t) => t.id === id)?.status !== status) mutate(() => send(`/api/tasks/${id}`, 'PATCH', { status }));
 });
 
+document.addEventListener('input', (e) => { if (e.target.id === 'qb-input') { drawQuickChips(); setQuickErr(''); } });
 document.getElementById('q').addEventListener('input', (e) => { S.query = e.target.value; render(); });
 document.getElementById('f-category').addEventListener('change', (e) => { S.fCategory = e.target.value; render(); });
 document.getElementById('hide-done')?.addEventListener('click', () => { S.hideDone = !S.hideDone; render(); });
@@ -1620,7 +1731,7 @@ document.getElementById('open-archive')?.addEventListener('click', openArchive);
 document.getElementById('open-settings')?.addEventListener('click', () => {
   S.modal = S.archive = null; S.error = ''; S.settings = 'status'; render();
 });
-document.getElementById('new-task')?.addEventListener('click', () => openNew());
+document.getElementById('new-task')?.addEventListener('click', () => (S.qbar ? document.getElementById('qb-input')?.focus() : openQuickBar()));
 document.getElementById('open-ai')?.addEventListener('click', openAi);
 document.getElementById('show-arch-notes')?.addEventListener('click', () => { S.showArchivedNotes = !S.showArchivedNotes; render(); });
 // 요약의 접힌 구역 — <details>의 toggle은 버블링하지 않아 캡처 단계에서 받는다.
@@ -1651,6 +1762,14 @@ document.addEventListener('change', (e) => {
   }
 });
 document.addEventListener('keydown', (e) => {
+  if (S.qbar) {
+    // 한글 조합 중 Enter는 조합 확정용이다 — 저장으로 가로채지 않는다
+    if (e.key === 'Enter' && e.target.id === 'qb-input' && !e.isComposing) {
+      e.preventDefault();
+      return e.shiftKey ? quickToModal() : saveQuickBar(true);
+    }
+    if (e.key === 'Escape') { e.preventDefault(); return saveQuickBar(false); }
+  }
   if (e.key === 'Escape' && S.ai) { S.ai = false; return render(); }
   if (e.key === 'Escape' && (S.modal || S.archive || S.settings || S.noteModal || S.quick || S.quickTask || S.quickChild || S.colorPick)) {
     if (S.quick) return saveQuick(); // 빠른 작성은 닫는 모든 경로가 저장이다 — Keep과 동일 (비어 있으면 그냥 닫힘)
@@ -1677,10 +1796,10 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.dataset?.act === 'opt-name') e.target.blur();
   // 전역 단축키 — 입력 중이거나 모달·빠른 추가가 열려 있으면 무시
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
-  const busy = S.modal || S.noteModal || S.settings || S.archive || S.quick || S.quickTask || S.ai;
+  const busy = S.modal || S.noteModal || S.settings || S.archive || S.quick || S.quickTask || S.ai || S.qbar;
   if (typing || busy || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === '/') { e.preventDefault(); document.getElementById('q').focus(); }
-  if (e.key === 'n') { e.preventDefault(); openNew(); }
+  if (e.key === 'n') { e.preventDefault(); openQuickBar(); }
   if (e.key === 'i') { e.preventDefault(); openAi(); }
 });
 
