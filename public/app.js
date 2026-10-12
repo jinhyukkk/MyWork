@@ -61,6 +61,17 @@ const byDue = (a, b) => {
 // 상하위 관계는 1단계뿐이라 인덱스 없이 훑는다 (개인용 규모 — 수십~수백 건)
 const taskById = (id) => S.tasks.find((t) => t.id === id);
 const childrenOf = (id) => S.tasks.filter((t) => t.parent_id === id);
+// 완료 처리용 상태 — 진행상황 설정 순서를 따른다. 보드 드래그·프로젝트 완료 토글과 같은 값.
+const firstDone = () => S.statuses.find(isDone);
+const firstOpen = () => S.statuses.find((s) => !isDone(s)) ?? S.statuses[0];
+const isCompleting = (t) => S.pending?.kind === 'complete' && S.pending.id === t.id;
+/** 행 앞 동그라미. 완료(또는 완료 대기 중)면 채워진다. done 상태가 없으면 그리지 않는다. */
+const doneBtn = (t) => {
+  if (!firstDone()) return '';
+  const on = isDone(t.status) || isCompleting(t);
+  const label = on ? '미완료로 되돌리기' : '완료 처리';
+  return `<button class="done-btn ${on ? 'on' : ''}" data-act="complete" data-id="${t.id}" title="${label}" aria-label="${label}">✓</button>`;
+};
 /**
  * 하위 태스크 진행 — 완료 건수 기준. 없으면 total 0 → UI에서 숨김.
  * late는 지연된 하위 건수. 상위는 마감이 멀어 평온해 보여도 하위가 밀려 있으면 배지가 경고색이 된다.
@@ -123,7 +134,7 @@ const S = {
   hideDone: savedFilters.hideDone ?? false,
   modal: null, archive: null, newSub: '', dragId: null, dragSub: null, dragOpt: null, dragOptKind: null, error: '',
   reSel: null, // 지연 일괄 재조정 선택. null = 전부 선택(기본값)
-  pending: null, // 되돌리기 대기 중인 삭제 { id, title, timer }
+  pending: null, // 되돌리기 대기 중인 삭제·완료 { id, kind, title, url, method, body?, timer }
   openSeries: new Set(), // 이전 회차를 펼쳐 둔 반복 계열
   notes: [], archNotes: [], showArchivedNotes: false,
   noteModal: null,      // 메모 편집 모달
@@ -278,7 +289,7 @@ function viewSummary(list) {
 
   const briefRow = (t, box = '') => {
     const dm = dueMeta(t);
-    return `<div class="up-row" data-act="open" data-id="${t.id}">${box}
+    return `<div class="up-row ${isCompleting(t) ? 'completing' : ''}" data-act="open" data-id="${t.id}">${box}${doneBtn(t)}
       <span class="dot" style="background:${CAT_COLOR(t.category)}"></span>
       <span class="t">${esc(t.title)}</span>
       <span class="c">${esc(t.category)}</span>
@@ -1347,41 +1358,60 @@ function convertNote(id) {
   render();
 }
 
-// ── 삭제 되돌리기 ────────────────────────────────────
-// 삭제 요청을 바로 보내지 않는다. 화면에서만 감춰 두고 UNDO_MS 뒤에 확정한다 —
-// 서버도 스키마도 건드리지 않고 «되돌리기»가 성립하고, 그때까지는 체크리스트 CASCADE도 일어나지 않는다.
+// ── 지연 확정 (삭제·완료 되돌리기) ───────────────────
+// 요청을 바로 보내지 않는다. 화면에만 반영해 두고 UNDO_MS 뒤에 확정한다 —
+// 서버도 스키마도 건드리지 않고 «되돌리기»가 성립한다.
+// 삭제: 그때까지 체크리스트 CASCADE가 일어나지 않는다.
+// 완료: 반복 태스크는 완료 PATCH 때 서버가 다음 회차를 만든다. 즉시 보내고 되돌리면 다음 회차가 남는다.
 const UNDO_MS = 5000;
 
-/** 대기 중인 삭제를 서버로 확정. 페이지를 떠나는 중에도 불리므로 keepalive로 보낸다. */
-function commitDelete(reloadAfter = true) {
+/** 대기 중인 요청을 서버로 확정. 페이지를 떠나는 중에도 불리므로 keepalive로 보낸다. */
+function commitPending(reloadAfter = true) {
   const p = S.pending;
   if (!p) return;
   clearTimeout(p.timer);
   S.pending = null;
-  const sent = api(p.url, { method: 'DELETE', keepalive: true });
+  const sent = api(p.url, { method: p.method, body: p.body, keepalive: true });
   if (reloadAfter) sent.then(reload).catch((e) => { S.error = e.message; render(); });
 }
 
 function requestDelete(id) {
-  commitDelete(); // 앞선 대기건은 먼저 확정한다 — 토스트는 항상 하나만 띄운다
+  commitPending(); // 앞선 대기건은 먼저 확정한다 — 토스트는 항상 하나만 띄운다
   const t = taskById(Number(id));
   if (!t) return;
-  S.pending = { id: t.id, kind: 'task', title: t.title, url: `/api/tasks/${t.id}`, timer: setTimeout(commitDelete, UNDO_MS) };
+  S.pending = { id: t.id, kind: 'task', title: t.title, url: `/api/tasks/${t.id}`, method: 'DELETE', timer: setTimeout(commitPending, UNDO_MS) };
   render();
 }
 
 function requestDeleteNote(id) {
-  commitDelete(); // 앞선 대기건 확정 — 토스트는 항상 하나
+  commitPending(); // 앞선 대기건 확정 — 토스트는 항상 하나
   const n = noteById(id);
   if (!n) return;
   S.pending = {
     id: n.id, kind: 'note', title: n.title || n.body.slice(0, 30) || '메모',
-    url: `/api/notes/${n.id}`, timer: setTimeout(commitDelete, UNDO_MS),
+    url: `/api/notes/${n.id}`, method: 'DELETE', timer: setTimeout(commitPending, UNDO_MS),
   };
   render();
 }
 
-function undoDelete() {
+/**
+ * 동그라미 클릭. 미완료 → 완료는 지연 확정, 완료 → 미완료는 즉시 반영(되돌릴 부작용이 없다).
+ * 완료 대기 중에 다시 누르면 취소 — 되돌리기 버튼과 같다.
+ */
+function requestComplete(id) {
+  const t = taskById(Number(id));
+  if (!t) return;
+  if (isCompleting(t)) return undoPending();
+  commitPending();
+  if (isDone(t.status)) return mutate(() => send(`/api/tasks/${t.id}`, 'PATCH', { status: firstOpen() }));
+  S.pending = {
+    id: t.id, kind: 'complete', title: t.title, url: `/api/tasks/${t.id}`,
+    method: 'PATCH', body: JSON.stringify({ status: firstDone() }), timer: setTimeout(commitPending, UNDO_MS),
+  };
+  render();
+}
+
+function undoPending() {
   clearTimeout(S.pending?.timer);
   S.pending = null;
   render();
@@ -1390,14 +1420,14 @@ function undoDelete() {
 function viewToast() {
   const p = S.pending;
   if (!p) return '';
-  return `<div class="toast">
-    <span class="t">«${esc(p.title)}» 삭제됨</span>
+  return `<div class="toast" role="status">
+    <span class="t">«${esc(p.title)}» ${p.kind === 'complete' ? '완료' : '삭제됨'}</span>
     <button data-act="undo">되돌리기</button>
   </div>`;
 }
 
-// 뷰 전환이 전부 페이지 이동이라, 떠나기 전에 대기 중인 삭제를 흘려보낸다
-addEventListener('pagehide', () => commitDelete(false));
+// 뷰 전환이 전부 페이지 이동이라, 떠나기 전에 대기 중인 요청을 흘려보낸다
+addEventListener('pagehide', () => commitPending(false));
 
 // ── 이벤트 ───────────────────────────────────────────
 document.addEventListener('click', (e) => {
@@ -1451,6 +1481,7 @@ document.addEventListener('click', (e) => {
   if (act === 'note-del-modal') { const nid = S.noteModal.id; S.noteModal = null; return requestDeleteNote(nid); }
   if (act === 'note-save') return saveNote();
   if (act === 'note-close' || (act === 'note-close-bd' && e.target === el)) return closeNote();
+  if (act === 'complete') { e.stopPropagation(); return requestComplete(id); }
   if (act === 'open') return openTask(id);
   if (act === 'new') return openNew(el.dataset.status);
   if (act === 'bq-open') {
@@ -1470,7 +1501,7 @@ document.addEventListener('click', (e) => {
   }
   if (act === 'del') { e.stopPropagation(); return requestDelete(id); }
   if (act === 'del-modal') { const t = S.modal.id; S.modal = null; return requestDelete(t); }
-  if (act === 'undo') return undoDelete();
+  if (act === 'undo') return undoPending();
   if (act === 'save') return saveDraft();
   if (act === 'sub-add') return addSubtask();
   if (act === 'log-add') return addProgress();

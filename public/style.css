@@ -330,6 +330,13 @@
   .ai-c-st.done { color:var(--danger); }
   .ai-c-st.fail { color:var(--danger); font-weight:600; }
 
+  /* ── 완료 동그라미 ── 누르면 완료(5초 뒤 확정), 완료 행에서 누르면 미완료로 */
+  .done-btn { all:unset; cursor:pointer; flex:none; width:18px; height:18px; box-sizing:border-box; border:1.5px solid var(--icon); border-radius:50%;
+              display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:transparent; }
+  .done-btn:hover { border-color:var(--ok); color:var(--ok); }
+  .done-btn.on { background:var(--ok); border-color:var(--ok); color:var(--on-accent); }
+  .completing .t, .completing .tt { text-decoration:line-through; color:var(--text-4); }
+
   /* ── 체크리스트 ── */
   .prog { height:5px; flex:none; border-radius:3px; background:var(--surface-3); overflow:hidden; }
   .prog .fill { height:100%; background:var(--accent); border-radius:3px; }
