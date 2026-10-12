@@ -405,39 +405,45 @@ function viewList(list) {
 }
 
 // 열 순서 = 진행상황 설정 순서. 열 머리를 끌어 바꾸면 설정에도 그대로 반영된다.
+/** 보드 카드 메타 줄의 마감 표기 — 좁은 줄이라 날짜보다 «얼마나 늦었나»를 먼저 말한다. 마감 없음은 생략. */
+function boardDue(t, dm) {
+  if (dm.diff === null) return null;
+  if (isDone(t.status)) return { text: dm.short, color: 'var(--text-4)' };
+  if (isWaiting(t.status)) return { text: dm.text, color: 'var(--text-4)' }; // «MM/DD 대기»
+  if (dm.diff < 0) return { text: `${-dm.diff}일 지연`, color: 'var(--danger)' };
+  if (dm.diff === 0) return { text: '오늘', color: 'var(--danger)' };
+  return { text: dm.short, color: dm.color };
+}
+
 function viewBoard(list) {
-  const cols = S.meta.statuses;
-  return `<div class="board" style="grid-template-columns:repeat(${cols.length},minmax(220px,1fr))">${cols.map((o) => {
+  return `<div class="board">${S.meta.statuses.map((o) => {
     const st = o.name;
     const tasks = list.filter((t) => t.status === st).sort(byDue);
+    const adding = S.quickTask === st;
     return `<div class="bcol ${S.dragId ? 'drag' : ''}" data-drop="${esc(st)}" data-opt="${o.id}">
       <div class="head" draggable="true" title="드래그해서 열 순서 변경">
         <span class="ck-grip">⠿</span>
         <span class="dot" style="background:${STATUS_COLOR(st)}"></span>
         <span class="l">${esc(st)}</span><span class="n">${tasks.length}</span>
+        <button class="col-add" data-act="bq-open" data-status="${esc(st)}" title="${esc(st)}에 태스크 추가" aria-label="${esc(st)}에 태스크 추가">${ICON.plus}</button>
       </div>
+      ${adding ? `<div class="bq-form"><input id="bq-title" placeholder="제목 입력 후 Enter · 연속 추가 가능"></div>` : ''}
       ${tasks.map((t) => {
-        const dm = dueMeta(t), done = isDone(t.status), p = checklist(t), c = childProgress(t.id);
+        const done = isDone(t.status), p = checklist(t), c = childProgress(t.id);
+        const due = boardDue(t, dueMeta(t));
         const parent = t.parent_id && taskById(t.parent_id);
-        return `<div class="bcard ${parent ? 'is-sub' : ''} ${S.dragId === t.id ? 'dragging' : ''}" draggable="true"
-             style="${parent ? `--sub:${CAT_COLOR(parent.category)}` : ''}" data-act="open" data-id="${t.id}">
+        return `<div class="bcard ${parent ? 'is-sub' : ''} ${done ? 'done' : ''} ${S.dragId === t.id ? 'dragging' : ''}" draggable="true" data-act="open" data-id="${t.id}">
           ${parent ? `<div class="parent-line" data-act="open" data-id="${parent.id}" title="상위 태스크: ${esc(parent.title)}">↳ ${esc(parent.title)}</div>` : ''}
-          <div class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? 'var(--text-4)' : 'var(--text)'}">${esc(t.title)}</div>
-          <div class="tags">
-            <span class="tint" style="--c:${CAT_COLOR(t.category)};font-weight:400">${esc(t.category)}</span>
+          <div class="tt">${esc(t.title)}</div>
+          <div class="meta">
+            <span class="cat"><i class="cdot" style="background:${CAT_COLOR(t.category)}"></i>${esc(t.category)}</span>
+            ${p.total ? `<span title="체크리스트 ${p.done}/${p.total}">☑ ${p.done}/${p.total}</span>` : ''}
             ${childBadge(c, t.id)}
-            ${t.repeat_days ? `<span style="background:var(--warn-bg);color:var(--warn)">🔁 ${repeatLabel(t.repeat_days)}</span>` : ''}
-          </div>
-          ${p.total ? `<div class="prog-row">
-            <div class="prog"><div class="fill" style="width:${p.pct}%"></div></div>
-            <span class="ck-n">${p.done}/${p.total}</span></div>` : ''}
-          <div class="foot">
-            <span class="du" style="color:${dm.color}">${dm.short}</span>
+            ${t.repeat_days ? `<span title="${repeatLabel(t.repeat_days)} 반복">↻</span>` : ''}
+            ${due ? `<span class="du" style="color:${due.color}">${due.text}</span>` : ''}
           </div></div>`;
       }).join('')}
-      ${S.quickTask === st
-        ? `<div class="bq-form"><input id="bq-title" placeholder="제목 입력 후 Enter · 연속 추가 가능"></div>`
-        : `<button class="add-btn" data-act="bq-open" data-status="${esc(st)}">＋ 태스크 추가</button>`}
+      ${!tasks.length && !adding ? '<div class="empty-col">비어 있음</div>' : ''}
     </div>`;
   }).join('')}</div>`;
 }
