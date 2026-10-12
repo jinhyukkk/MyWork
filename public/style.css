@@ -100,7 +100,8 @@
   .btn-primary:hover { background:var(--accent-h); }
   .toggle { all:unset; cursor:pointer; flex:none; height:32px; padding:0 10px; border:1px solid var(--line); border-radius:6px; background:var(--surface-2); color:var(--text-3); font-size:12px; display:flex; align-items:center; white-space:nowrap; }
   .toggle:hover { background:var(--hover); color:var(--text); }
-  .toggle.on { background:var(--accent-bg); border-color:var(--accent); color:var(--accent); font-weight:600; }
+  /* accent-bg 위 글자는 accent-h — accent는 이 배경에서 4.14:1로 AA 미달(accent-h 5.20 / 7.32) */
+  .toggle.on { background:var(--accent-bg); border-color:var(--accent); color:var(--accent-h); font-weight:600; }
   /* 아이콘 전용 헤더 버튼 — 라벨은 title·aria-label로만 남긴다 */
   .toggle.hicon { width:32px; padding:0; justify-content:center; border-color:transparent; background:transparent; color:var(--icon); }
   .toggle.hicon:hover { background:var(--hover); color:var(--text); }
@@ -325,7 +326,7 @@
   .prog-row { display:flex; align-items:center; gap:7px; }
   .prog-row .prog { flex:1; }
   .ck-n { font-size:10.5px; color:var(--text-4); font-variant-numeric:tabular-nums; font-weight:600; }
-  .ck-badge { font-size:10.5px; color:var(--accent); background:var(--accent-bg); padding:1px 5px; border-radius:3px; font-weight:600; margin-right:6px; font-variant-numeric:tabular-nums; }
+  .ck-badge { font-size:10.5px; color:var(--accent-h); background:var(--accent-bg); padding:1px 5px; border-radius:3px; font-weight:600; margin-right:6px; font-variant-numeric:tabular-nums; }
   .rp-badge { font-size:10.5px; color:var(--warn); background:var(--warn-bg); padding:1px 5px; border-radius:3px; font-weight:600; margin-right:6px; }
   /* 접힌 이전 회차를 여는 배지 — 유일하게 눌리는 배지라 테두리로 구분한다 */
   .fold-badge { cursor:pointer; font-size:10.5px; color:var(--text-3); background:var(--surface); border:1px solid var(--line); padding:0 5px; border-radius:3px; font-weight:600; margin-right:6px; }
