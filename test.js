@@ -575,3 +575,39 @@ test('메모 — 분류 이름변경은 따라오고 삭제는 NULL', async (t) 
   await c(`/api/options/${tmp.id}`, 'DELETE');
   assert.equal((await (await c('/api/notes')).json()).find((n) => n.id === note.id).category, null);
 });
+
+test('AI 지시 — 도구 호출 루프가 DB를 바꾸고 결과를 돌려준다 (가짜 Claude)', async (t) => {
+  const db = openDb(':memory:');
+  const sent = [];
+  // 1회차: create_task 호출 → 2회차: 완료 보고. 실제 API는 부르지 않는다.
+  const replies = [
+    { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'tu1', name: 'create_task', input: { title: 'AI가 만든 일', category: '새분류' } }] },
+    { stop_reason: 'end_turn', content: [{ type: 'text', text: '«AI가 만든 일»을 만들었습니다.' }] },
+  ];
+  const fake = { beta: { messages: { create: async (req) => { sent.push(structuredClone(req)); return replies.shift(); } } } };
+  const srv = createApp(db, () => fake).listen(0);
+  t.after(() => srv.close());
+  const c = (body) => fetch(`http://localhost:${srv.address().port}/api/ai`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+
+  const r = await c({ messages: [{ role: 'user', content: '할 일 하나 만들어줘' }] });
+  assert.equal(r.status, 200);
+  const out = await r.json();
+  assert.equal(out.reply, '«AI가 만든 일»을 만들었습니다.');
+  assert.deepEqual(out.actions.map((a) => [a.tool, a.error]), [['create_task', false]]);
+  assert.ok(store.listTasks(db).some((x) => x.title === 'AI가 만든 일' && x.category === '새분류'), 'MCP와 같은 규칙 — 없는 분류는 자동 생성');
+
+  // 2회차 요청에는 tool_result가 user 메시지로 붙어 있어야 한다
+  const last = sent[1].messages.at(-1);
+  assert.equal(last.role, 'user');
+  assert.equal(last.content[0].type, 'tool_result');
+  assert.equal(last.content[0].tool_use_id, 'tu1');
+  assert.ok(sent[0].tools.some((x) => x.name === 'today_brief' && x.input_schema), 'MCP 도구가 그대로 노출된다');
+
+  // 입력 검증 — 비었거나 assistant로 끝나면 400, API는 부르지 않는다
+  assert.equal((await c({ messages: [] })).status, 400);
+  assert.equal((await c({ messages: [{ role: 'assistant', content: 'x' }] })).status, 400);
+  assert.equal((await c({ messages: [{ role: 'system', content: 'x' }] })).status, 400);
+  assert.equal(sent.length, 2);
+});

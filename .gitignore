@@ -8,3 +8,6 @@ data/
 WorkDesk 개인 업무 대시보드/
 WorkDesk 개인 업무 대시보드.zip
 server.log
+
+# 비밀값 — .env.example을 복사해서 쓴다
+.env

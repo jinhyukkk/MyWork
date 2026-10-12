@@ -118,6 +118,9 @@ const S = {
   colorPick: null,      // 색상 스와치가 열린 메모 id
   optColor: null,       // 색상 스와치가 열린 설정 항목 id
   convertNoteId: null,  // 태스크로 전환 중인 메모 id — 태스크 저장 성공 시 연결한다
+  ai: false,            // AI 지시창 열림 여부
+  aiBusy: false,
+  aiMsgs: loadAiMsgs(), // [{ role, content, actions? }] — 뷰 전환(페이지 이동)에도 대화가 이어지게 세션에 둔다
 };
 
 // ── API ──────────────────────────────────────────────
@@ -865,6 +868,7 @@ function viewTaskNotes(m) {
 }
 
 function viewModal() {
+  if (S.ai) return viewAi();
   if (S.settings) return viewSettings();
   if (S.archive) return viewArchive();
   const m = S.modal;
@@ -947,6 +951,71 @@ function render() {
   document.querySelector('.app').inert = !!document.querySelector('#modal-root .backdrop');
   // 지정된 경우에만 포커스 — 체크리스트 조작 중 제목으로 커서가 튀지 않게
   if (S.focusId) { document.getElementById(S.focusId)?.focus(); S.focusId = null; }
+}
+
+// ── AI 지시창 ────────────────────────────────────────
+function loadAiMsgs() {
+  try { return JSON.parse(sessionStorage.getItem('mywork.ai')) ?? []; } catch { return []; }
+}
+function saveAiMsgs() {
+  try { sessionStorage.setItem('mywork.ai', JSON.stringify(S.aiMsgs.slice(-40))); } catch { /* 저장 실패는 무시 — 대화만 안 이어질 뿐 */ }
+}
+// 도구 이름 → 사람이 읽는 라벨. 조회 도구는 화면에 남길 가치가 없어 뺀다.
+const AI_ACT = {
+  create_task: '태스크 생성', update_task: '태스크 수정', delete_task: '태스크 삭제',
+  add_subtask: '체크리스트 추가', update_subtask: '체크리스트 수정', delete_subtask: '체크리스트 삭제',
+  archive_tasks: '보관', restore_task: '복원',
+  create_note: '메모 생성', update_note: '메모 수정', delete_note: '메모 삭제',
+};
+
+function viewAi() {
+  const bubble = (m) => {
+    const acts = (m.actions ?? []).filter((a) => AI_ACT[a.tool]);
+    return `<div class="ai-msg ${m.role}${m.error ? ' err' : ''}">${esc(m.content)}${acts.length ? `<div class="ai-acts">${acts.map((a) =>
+        `<span class="chip">${a.error ? '✕' : '✓'} ${AI_ACT[a.tool]}${a.input?.title ? ` · ${esc(a.input.title)}` : a.input?.id ? ` #${a.input.id}` : ''}</span>`).join('')}</div>` : ''}</div>`;
+  };
+  return `<div class="backdrop" data-act="ai-close-bd"><div class="modal ai-modal" role="dialog" aria-label="AI 지시">
+    <div class="mh"><div class="t">AI 지시</div><div style="flex:1"></div>
+      ${S.aiMsgs.length ? '<button class="btn-ghost" data-act="ai-clear">대화 지우기</button>' : ''}
+      <button class="x-btn" data-act="ai-close" aria-label="닫기">×</button></div>
+    <div class="mb ai-log" id="ai-log" aria-live="polite">
+      ${S.aiMsgs.length ? S.aiMsgs.map(bubble).join('') : `<div class="ai-hint">예) «내일까지 인사시스템 배포 점검 태스크 만들어줘» · «오늘 뭐 해야 해?» · «지연된 것 전부 다음 주 월요일로 미뤄줘» · «이번 주 회고 요약해줘»</div>`}
+      ${S.aiBusy ? '<div class="ai-msg assistant busy">처리 중…</div>' : ''}
+    </div>
+    <div class="mf">
+      <textarea id="ai-input" rows="2" placeholder="지시를 입력하고 Enter (줄바꿈은 Shift+Enter)" ${S.aiBusy ? 'disabled' : ''}></textarea>
+      <button class="btn-save" data-act="ai-send" ${S.aiBusy ? 'disabled' : ''}>보내기</button>
+    </div>
+  </div></div>`;
+}
+
+function openAi() {
+  S.modal = S.archive = S.settings = null; S.error = '';
+  S.ai = true; S.focusId = 'ai-input'; render();
+  const log = document.getElementById('ai-log');
+  if (log) log.scrollTop = log.scrollHeight;
+}
+
+async function sendAi() {
+  const input = document.getElementById('ai-input');
+  const text = input?.value.trim();
+  if (!text || S.aiBusy) return;
+  S.aiMsgs.push({ role: 'user', content: text });
+  S.aiBusy = true; openAi();
+  let actions = [];
+  try {
+    // 서버는 무상태 — 실패 응답은 이력에서 빼고 보낸다(모델이 오류 문구를 자기 말로 착각하지 않게)
+    const history = S.aiMsgs.filter((m) => !m.error).map(({ role, content }) => ({ role, content }));
+    const r = await send('/api/ai', 'POST', { messages: history });
+    actions = r.actions;
+    S.aiMsgs.push({ role: 'assistant', content: r.reply, actions });
+  } catch (e) {
+    S.aiMsgs.push({ role: 'assistant', content: e.message, error: true });
+  }
+  S.aiBusy = false; saveAiMsgs();
+  // 무언가 바꿨으면 화면 데이터를 서버 값으로 다시 맞춘다
+  if (actions.some((a) => AI_ACT[a.tool] && !a.error)) await reload().catch(() => {});
+  if (S.ai) openAi();
 }
 
 // ── 모달 조작 ────────────────────────────────────────
@@ -1363,6 +1432,9 @@ document.addEventListener('click', (e) => {
   if (act === 'close-set' || (act === 'close-set-bd' && e.target === el)) { S.settings = null; S.optColor = null; S.error = ''; return render(); }
   if (act === 'set-kind') { S.settings = el.dataset.kind; S.optColor = null; S.error = ''; return render(); }
   if (act === 'opt-add') return addOption();
+  if (act === 'ai-send') return sendAi();
+  if (act === 'ai-clear') { S.aiMsgs = []; saveAiMsgs(); return openAi(); }
+  if (act === 'ai-close' || (act === 'ai-close-bd' && e.target === el)) { S.ai = false; return render(); }
   // 색은 고정 팔레트에서만 고른다 — 자유 선택은 대비를 지킬 수 없고 색이 무한정 늘어난다
   if (act === 'opt-color') { S.optColor = S.optColor === Number(id) ? null : Number(id); return render(); }
   if (act === 'opt-swatch') { S.optColor = null; return mutate(() => send(`/api/options/${id}`, 'PATCH', { color: el.dataset.color })); }
@@ -1493,6 +1565,7 @@ document.getElementById('open-settings')?.addEventListener('click', () => {
   S.modal = S.archive = null; S.error = ''; S.settings = 'status'; render();
 });
 document.getElementById('new-task')?.addEventListener('click', () => openNew());
+document.getElementById('open-ai')?.addEventListener('click', openAi);
 document.getElementById('show-arch-notes')?.addEventListener('click', () => { S.showArchivedNotes = !S.showArchivedNotes; render(); });
 // 기준일을 바꾸면 대상 건수를 다시 센다
 document.addEventListener('change', (e) => {
@@ -1513,6 +1586,7 @@ document.addEventListener('change', (e) => {
   }
 });
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && S.ai) { S.ai = false; return render(); }
   if (e.key === 'Escape' && (S.modal || S.archive || S.settings || S.noteModal || S.quick || S.quickTask || S.quickChild || S.colorPick)) {
     if (S.quick) return saveQuick(); // 빠른 작성은 닫는 모든 경로가 저장이다 — Keep과 동일 (비어 있으면 그냥 닫힘)
     if (S.quickTask) return saveQuickTask();
@@ -1533,14 +1607,16 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.id === 'pc-title') { e.preventDefault(); saveQuickChild(true); }
   if (e.key === 'Enter' && e.target.id === 'd-newsub') { e.preventDefault(); addSubtask(); }
   if (e.key === 'Enter' && e.target.id === 'd-log') { e.preventDefault(); addProgress(); }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.target.id === 'ai-input') { e.preventDefault(); sendAi(); }
   if (e.key === 'Enter' && e.target.id === 's-new') { e.preventDefault(); addOption(); }
   if (e.key === 'Enter' && e.target.dataset?.act === 'opt-name') e.target.blur();
   // 전역 단축키 — 입력 중이거나 모달·빠른 추가가 열려 있으면 무시
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
-  const busy = S.modal || S.noteModal || S.settings || S.archive || S.quick || S.quickTask;
+  const busy = S.modal || S.noteModal || S.settings || S.archive || S.quick || S.quickTask || S.ai;
   if (typing || busy || e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.key === '/') { e.preventDefault(); document.getElementById('q').focus(); }
   if (e.key === 'n') { e.preventDefault(); openNew(); }
+  if (e.key === 'i') { e.preventDefault(); openAi(); }
 });
 
 document.getElementById('q').value = S.query; // 검색창은 정적 DOM이라 복원값을 한 번 넣어 준다
