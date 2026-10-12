@@ -1,5 +1,6 @@
 // MyWork 프론트 — 상태 변경 시 전체 재렌더. 이벤트는 위임으로 처리.
 import { checklist, checklistTotals } from './progress.js';
+import { groupTasks, nest } from './listgroup.js';
 
 const DAY = 86400000;
 // 프로젝트 뷰(/project)는 여기 없다 — 메뉴가 아니라 목록·보드의 ⑂ 배지와 모달에서 들어간다.
@@ -129,7 +130,7 @@ const S = {
   projectId: Number(new URLSearchParams(location.search).get('task')) || null,
   quickChild: false,    // 프로젝트 뷰의 하위 태스크 인라인 추가 열림 여부
   query: savedFilters.query ?? '', fCategory: savedFilters.fCategory ?? 'all',
-  sortKey: 'due', sortDir: 1,
+  listGroup: (() => { try { return localStorage.getItem('mywork.list.group') || 'status'; } catch { return 'status'; } })(),
   calMonth: TODAY.slice(0, 7),
   hideDone: savedFilters.hideDone ?? false,
   modal: null, archive: null, newSub: '', dragId: null, dragSub: null, dragOpt: null, dragOptKind: null, error: '',
@@ -316,30 +317,12 @@ function viewSummary(list) {
   </div>`;
 }
 
-// 우선순위·업무유형 컬럼은 없앴다 — 값이 한쪽에 쏠려(Medium 40:4, 유형 상위 2종이 86%)
-// 정렬에도 스캔에도 정보를 주지 못했다. 남은 축은 상태·분류·날짜뿐이다.
-// 시작일 컬럼도 뺐다 — 값이 대부분 «생성한 날» 근처의 자리채움이었다.
-// 시작일이 실제로 의미를 갖는 곳은 프로젝트 뷰의 간트뿐이라 편집·표시를 거기로 모았다.
-const COLS = [
-  { key: 'title', label: '제목' }, { key: 'status', label: '상태' }, { key: 'category', label: '분류' },
-  { key: 'due', label: '마감일' }, { key: '', label: '' },
-];
+// 목록은 표가 아니라 묶음 리스트다. 열 클릭 정렬 대신 묶는 기준을 고른다 — 정렬은 언제나 마감일 순.
+// 우선순위·업무유형·시작일 축은 없앴다(README «없앤 축» 참고).
+const LIST_GROUPS = [['status', '상태별'], ['category', '분류별'], ['due', '마감순']];
 
 function viewList(list) {
-  const sorted = list.slice().sort((a, b) => {
-    // 완료 행은 정렬 기준과 무관하게 항상 하단 — 첫 화면이 끝난 일로 시작하지 않게
-    const d = isDone(a.status) - isDone(b.status);
-    if (d) return d;
-    const k = S.sortKey;
-    let av, bv;
-    if (k === 'due') { av = endDate(a); bv = endDate(b); } // 완료 행은 보이는 값(완료일)으로 줄 세운다
-    else if (k === 'status') { av = S.statuses.indexOf(a.status); bv = S.statuses.indexOf(b.status); }
-    else { av = String(a[k] ?? ''); bv = String(b[k] ?? ''); }
-    return (av < bv ? -1 : av > bv ? 1 : 0) * S.sortDir;
-  });
-
-  const head = COLS.map((c) => `<button data-act="sort" data-key="${c.key}">
-    <span>${c.label}</span><span class="arrow">${S.sortKey === c.key && c.key ? (S.sortDir === 1 ? '▲' : '▼') : ''}</span></button>`).join('');
+  const sorted = list.slice().sort(byDue);
 
   // 반복 태스크는 완료 회차가 같은 제목으로 쌓인다 — 최신 완료 회차만 남기고 이전 것을 접는다.
   // 계열 식별자는 제목+주기다. 회차마다 별도 태스크로 복사될 뿐 계열 id가 없기 때문이며,
@@ -359,33 +342,43 @@ function viewList(list) {
     if (!S.openSeries.has(key)) older.forEach((t) => folded.add(t.id));
   }
 
-  // 하위 태스크는 상위 바로 아래에 붙인다. 상위가 필터에 걸려 안 보이면 제자리에 그대로 둔다.
-  const kids = new Map();
-  for (const t of sorted) if (t.parent_id) kids.set(t.parent_id, [...(kids.get(t.parent_id) ?? []), t]);
-  const shown = new Set(sorted.map((t) => t.id));
-  const ordered = sorted.flatMap((t) =>
-    (t.parent_id && shown.has(t.parent_id)) ? [] : [t, ...(kids.get(t.id) ?? [])]);
+  const mode = S.listGroup;
+  const groups = groupTasks(sorted.filter((t) => !folded.has(t.id)), mode,
+    { statuses: S.statuses, categories: S.categories, isDone });
 
-  const rows = ordered.filter((t) => !folded.has(t.id)).map((t) => {
-    const dm = dueMeta(t), done = isDone(t.status), p = checklist(t), c = childProgress(t.id);
-    // 하위 표시 색은 상위의 분류 색을 따른다 — 상위가 지워졌거나 보관됐으면 CAT_COLOR의 기본 회색
-    const sub = t.parent_id ? `--sub:${CAT_COLOR(taskById(t.parent_id)?.category)}` : '';
-    return `<div class="grid-row trow">
-      <div class="main ${t.parent_id ? 'is-sub' : ''}" style="${sub}" data-act="open" data-id="${t.id}">
-        <span class="tt" style="text-decoration:${done ? 'line-through' : 'none'};color:${done ? 'var(--text-4)' : 'var(--text)'}">${t.parent_id ? '<span class="sub-mark">↳</span>' : ''}${esc(t.title)}</span>
-        <span class="td">${t.repeat_days ? `<b class="rp-badge">🔁 ${repeatLabel(t.repeat_days)}</b>` : ''}${folds.has(t.id) ? `<b class="fold-badge" data-act="fold" data-id="${t.id}">${S.openSeries.has(seriesKey(t)) ? '− 이전 회차 접기' : `＋ 이전 회차 ${folds.get(t.id)}건`}</b>` : ''}${childBadge(c, t.id)}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${t.memo ? linkify(esc(t.memo)) : '—'}</span>
+  const row = ({ t, sub }) => {
+    const dm = dueMeta(t), p = checklist(t), c = childProgress(t.id);
+    // 상위가 다른 그룹에 있으면 들여쓸 수 없으니 메모 줄에 상위 제목을 단다
+    const parent = t.parent_id && !sub ? taskById(t.parent_id) : null;
+    const meta = [parent && `↳ ${esc(parent.title)}`, t.memo && linkify(esc(t.memo))].filter(Boolean).join(' · ');
+    // 그룹 기준과 같은 축의 알약은 중복이라 뺀다
+    const pills = [
+      mode !== 'category' && `<span class="chip tint" style="--c:${CAT_COLOR(t.category)}">${esc(t.category)}</span>`,
+      mode !== 'status' && `<span class="chip tint" style="--c:${STATUS_COLOR(t.status)}">${esc(t.status)}</span>`,
+    ].filter(Boolean).join('');
+    return `<div class="up-row lrow ${sub ? 'sub' : ''} ${isDone(t.status) || isCompleting(t) ? 'completing' : ''}" data-act="open" data-id="${t.id}">
+      ${doneBtn(t)}
+      <div class="main">
+        <span class="t">${esc(t.title)}${t.repeat_days ? ` <span class="rp" title="${repeatLabel(t.repeat_days)} 반복">↻</span>` : ''}</span>
+        ${p.total || c.total || folds.has(t.id) || meta ? `<span class="td">${childBadge(c, t.id)}${p.total ? `<b class="ck-badge">☑ ${p.done}/${p.total}</b>` : ''}${folds.has(t.id) ? `<b class="fold-badge" data-act="fold" data-id="${t.id}">${S.openSeries.has(seriesKey(t)) ? '− 이전 회차 접기' : `＋ 이전 회차 ${folds.get(t.id)}건`}</b>` : ''}${meta}</span>` : ''}
       </div>
-      <div class="cell"><span class="chip tint" style="--c:${STATUS_COLOR(t.status)}">${esc(t.status)}</span></div>
-      <div class="cell" style="color:var(--text-3)">${esc(t.category)}</div>
-      <div class="cell" style="color:${dm.color};font-variant-numeric:tabular-nums;font-weight:550">${dm.text}</div>
-      <div class="cell" style="padding:0 8px;display:flex;justify-content:center">
-        <button class="x-btn" data-act="del" data-id="${t.id}">×</button></div>
+      ${pills}
+      <span class="d" style="color:${dm.color}">${dm.text}</span>
+      <button class="x-btn" data-act="del" data-id="${t.id}" title="삭제" aria-label="삭제">×</button>
     </div>`;
-  }).join('');
+  };
 
-  return `<div class="card" style="overflow-x:auto">
-    <div class="grid-row thead">${head}</div>
-    ${rows || '<div class="empty">조건에 맞는 태스크가 없습니다.</div>'}
+  const head = (g) => {
+    if (mode === 'due') return '';
+    const color = mode === 'status' ? STATUS_COLOR(g.key) : CAT_COLOR(g.key);
+    return `<div class="grp-h"><i class="gdot" style="background:${color}"></i><b>${esc(g.key)}</b><span class="n">${g.items.length}</span></div>`;
+  };
+
+  return `<div class="lst">
+    <div class="seg" role="tablist" aria-label="묶는 기준">${LIST_GROUPS.map(([k, l]) =>
+      `<button role="tab" aria-selected="${mode === k}" class="${mode === k ? 'on' : ''}" data-act="list-group" data-mode="${k}">${l}</button>`).join('')}</div>
+    ${groups.map((g) => `<section class="card grp">${head(g)}${nest(g.items).map(row).join('')}</section>`).join('')
+      || '<div class="card empty">조건에 맞는 태스크가 없습니다.</div>'}
   </div>`;
 }
 
@@ -1415,11 +1408,9 @@ document.addEventListener('click', (e) => {
   const { act, id } = el.dataset;
 
   if (act === 'cat') { S.fCategory = S.fCategory === el.dataset.cat ? 'all' : el.dataset.cat; return render(); }
-  if (act === 'sort') {
-    const k = el.dataset.key;
-    if (!k) return;
-    S.sortDir = S.sortKey === k ? -S.sortDir : 1;
-    S.sortKey = k;
+  if (act === 'list-group') {
+    S.listGroup = el.dataset.mode;
+    try { localStorage.setItem('mywork.list.group', S.listGroup); } catch { /* 저장 실패는 기본값으로 돌아갈 뿐 */ }
     return render();
   }
   if (act === 'month') {

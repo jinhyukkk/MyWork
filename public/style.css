@@ -61,7 +61,7 @@
      즉각성이 정보인 곳(진척 막대·간트 막대)에는 걸지 않는다.
      !important을 쓰는 이유는 포커스 링과 같다 — `.nav-btn{all:unset}`류 17곳이 (0,1,0)이라
      (0,0,1)인 `button` 셀렉터를 이긴다. 클래스를 17개 나열하고 순서까지 맞추느니 빼놓는다. */
-  a, button, .trow, .up-row, .bcard, .note-card, .note-actions, .ck-item, .ck-box,
+  a, button, .lrow, .up-row, .bcard, .note-card, .note-actions, .ck-item, .ck-box,
   .g-row, .pj-card, .day .ev, .opt-name, .cat-btn {
     transition: background-color .12s ease, color .12s ease, border-color .12s ease,
                 box-shadow .16s ease, opacity .12s ease, filter .12s ease, transform .12s ease !important;
@@ -162,18 +162,20 @@
   /* btn-sm(all:unset)을 쓰지 않는다 — appearance까지 지워져 date 입력의 달력 아이콘이 사라진다 */
   .resched-date { height:30px; border:1px solid var(--line); border-radius:99px; padding:0 10px; font-size:12px; color:var(--text-2); background:var(--surface); }
 
-  /* ── 목록 ── */
-  .grid-row { min-width:620px; display:grid; grid-template-columns:minmax(240px,1fr) 92px 130px 118px 40px; }
-  .thead { background:var(--surface-2); border-bottom:1px solid var(--line); font-size:11.5px; font-weight:650; color:var(--text-3); }
-  .thead button { all:unset; cursor:pointer; padding:10px 12px; display:flex; align-items:center; gap:4px; }
-  .thead button:hover { color:var(--text); }
-  .thead .arrow { color:var(--accent); }
-  .trow { align-items:center; border-bottom:1px solid var(--line-2); font-size:12.5px; }
-  .trow:hover { background:var(--hover); }
-  .trow .main { padding:11px 12px; cursor:pointer; display:flex; flex-direction:column; gap:2px; min-width:0; }
-  .trow .main .tt { font-weight:550; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .trow .main .td { font-size:11px; color:var(--text-4); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .trow .cell { padding:0 12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* ── 목록 — 묶음 리스트 ── 행은 요약의 .up-row를 그대로 쓰고 메모 줄·알약만 얹는다 */
+  .lst { max-width:960px; margin:0 auto; display:flex; flex-direction:column; gap:12px; }
+  .seg { align-self:flex-start; display:flex; gap:2px; padding:3px; background:var(--surface); border-radius:99px; box-shadow:var(--elev); }
+  .seg button { all:unset; cursor:pointer; padding:5px 14px; border-radius:99px; font-size:12.5px; font-weight:600; color:var(--text-3); }
+  .seg button:hover { color:var(--text); }
+  .seg button.on { background:var(--text); color:var(--surface); }
+  .lrow .main { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+  .lrow .main .t { flex:none; }
+  .lrow .td { font-size:12px; color:var(--text-4); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lrow .rp { color:var(--icon); font-weight:400; }
+  .lrow.sub { padding-left:34px; }
+  /* 삭제는 hover·포커스 때만 — 행마다 ×가 늘어서면 시선이 거기로 간다 */
+  .lrow .x-btn { opacity:0; }
+  .lrow:hover .x-btn, .lrow .x-btn:focus-visible { opacity:1; }
   .chip { font-size:11.5px; padding:2px 8px; border-radius:99px; font-weight:500; white-space:nowrap; }
   /* ── 사용자 지정 색 ──
      설정에서 고른 색을 글자에 그대로 쓰면 대비가 무너진다(라이트에서 노랑 1.5:1, 다크에서 남색 3.3:1).
@@ -361,9 +363,6 @@
   /* ── 상하위 태스크 ── */
   /* 색은 고정하지 않는다 — 유형·분류 색은 사용자가 바꾸므로 어떤 값을 박아도 언젠가 겹친다.
      하위 표시는 상위 태스크의 분류 색을 --sub로 물려받고, 구분은 색이 아니라 형태(세로선·↳ 칩)가 맡는다. */
-  .sub-mark { color:var(--sub,var(--icon)); margin-right:5px; font-weight:700; }
-  /* 하위 행: 들여쓰기만으로는 스크롤 중에 놓치기 쉬워 왼쪽에 세로선을 세운다 */
-  .trow .main.is-sub { padding-left:30px; box-shadow:inset 3px 0 0 var(--sub,var(--icon)); }
   /* 하위 카드: 왼쪽 굵은 선 + 상위 태스크 칩(클릭하면 상위로 이동) */
   /* 칩만 솔리드로 채운다 — 나머지 태그가 전부 10% 파스텔이라 이 하나가 확실히 튄다 */
   .bcard .parent-line { align-self:flex-start; max-width:100%; font-size:11.5px; color:var(--text-4); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
@@ -449,7 +448,7 @@
 
   /* ── 키보드 포커스 ──
      all:unset(17곳)과 outline:none(7곳)이 포커스 링을 전부 지워 Tab 이동이 보이지 않았다.
-     !important를 쓰는 이유: 이 규칙은 특이도 (0,1,0)이라 `.thead button{all:unset}` 같은
+     !important를 쓰는 이유: 이 규칙은 특이도 (0,1,0)이라 `.seg button{all:unset}` 같은
      (0,1,1) 규칙에 진다. 포커스 링은 어떤 규칙도 지우면 안 되는 바닥선이므로
      특이도 경쟁에서 빼놓는 편이 셀렉터를 매번 맞춰 올리는 것보다 안전하다. */
   :focus-visible { outline:2px solid var(--accent) !important; outline-offset:2px !important; border-radius:5px; }
@@ -458,7 +457,7 @@
 
   /* ── 좁은 화면 ──
      데스크톱 전용으로 만들었지만 폰으로 «오늘의 액션»만 확인하는 쓰임이 있어, 레이아웃이 깨지지
-     않을 만큼만 대응한다. 목록·타임라인·보드는 원래대로 가로 스크롤에 맡긴다 — 열이 좁아지면
+     않을 만큼만 대응한다. 타임라인·보드는 가로 스크롤에 맡긴다 — 목록은 묶음 리스트라 세로로 읽힌다 — 열이 좁아지면
      읽을 수 없는 표를 억지로 접는 것보다 낫다. */
   @media (max-width:1100px) {
     /* 뷰 제목을 접어 68px를 검색창에 넘긴다 — 이 구간에서 검색창이 min-width(80px)까지
@@ -489,6 +488,8 @@
   }
   /* 폰 전용 압축 — 900px 구간에서 여기까지 접으면 태블릿에서 카드가 지나치게 넓어진다 */
   @media (max-width:560px) {
+    .lrow .chip { display:none; }
+    .lrow .x-btn { opacity:1; } /* 터치에는 hover가 없다 */
     .today-h h1 { font-size:22px; }
     .up-row .chip { display:none; } /* 폰에서는 제목·마감이 우선 — 분류는 목록에서 본다 */
     .up-row .d { min-width:0; }
