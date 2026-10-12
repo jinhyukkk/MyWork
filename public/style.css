@@ -4,7 +4,7 @@
      보조 텍스트는 4.5:1(작은 글자 AA)을, 아이콘·테두리는 3:1(비텍스트)을 기준으로 잡았다. */
   :root {
     color-scheme: light dark;
-    --bg:         light-dark(#F4F5F7, #0E1013);  /* 앱 배경 */
+    --bg:         light-dark(#FFFFFF, #16191E);  /* 본문 면 — 회색 앱 배경을 없앴다 */
     --surface:    light-dark(#FFFFFF, #16191E);  /* 카드·헤더·모달 */
     --surface-2:  light-dark(#FAFBFC, #1B1F25);  /* 입력·표 머리 */
     --surface-3:  light-dark(#EEF0F4, #20252C);  /* 보드 열·트랙 */
@@ -18,9 +18,9 @@
     --text-4:     light-dark(#6B7280, #8E97A4);  /* 흰 배경 4.65:1 */
     --icon:       light-dark(#8A919C, #767F8C);  /* 아이콘 — 3:1대, 본문보다 물러나야 한다 */
     --disabled:   light-dark(#B4BBC5, #565E6A);
-    --accent:     light-dark(#2A65E0, #7BA5F5);
-    --accent-h:   light-dark(#1B4FC0, #A5C4FF);
-    --accent-bg:  light-dark(#EAF0FE, #1A2540);
+    --accent:     light-dark(#5E6AD2, #8B93F5);  /* 인디고. 텍스트 대비 4.70 / 6.37 */
+    --accent-h:   light-dark(#4F5AC0, #A5ACF8);
+    --accent-bg:  light-dark(#EEF0FB, #1E2140);
     --danger:     light-dark(#CE3E3E, #FF8A8A);
     --danger-bg:  light-dark(#FDECEC, #3A1E1E);
     --warn:       light-dark(#A05F00, #E5A94F);
@@ -28,12 +28,12 @@
     --ok:         light-dark(#2FA84F, #5FD07E);
     --done-bar:   light-dark(#9CB6A4, #4A6B55);  /* 타임라인 완료 막대 */
     --on-accent:  light-dark(#FFFFFF, #0B1020);  /* 액센트 위에 얹는 글자 */
-    /* 사이드바·토스트는 라이트에서도 어두운 면이다 — 다크에서는 본문보다 한 단계 더 내린다 */
-    --side-bg:    light-dark(#14161A, #0A0C0F);
-    --side-fg:    light-dark(#A7AEBB, #A7AEBB);
-    --side-dim:   light-dark(#8B93A1, #8B93A1);
-    --side-hover: light-dark(#23262D, #191D23);
-    --side-line:  light-dark(#262A31, #1C2026);
+    /* 사이드바는 본문과 한 톤 차이의 밝은 면이다(검은 사이드바 폐지). 토스트는 어두운 면 유지 */
+    --side-bg:    light-dark(#F7F8FA, #0F1115);
+    --side-fg:    var(--text-3);
+    --side-dim:   var(--text-4);
+    --side-hover: light-dark(#ECEEF2, #1C2026);
+    --side-line:  var(--line);
     --inv-bg:     light-dark(#14161A, #2C323B);  /* 토스트 */
     --shadow:     light-dark(rgba(20,22,26,.28), rgba(0,0,0,.6));
     --shadow-sm:  light-dark(rgba(20,22,26,.12), rgba(0,0,0,.4));
@@ -68,40 +68,44 @@
   .app { height:100vh; display:flex; font-family:Pretendard,-apple-system,'Segoe UI',sans-serif; color:var(--text); background:var(--bg); overflow:hidden; }
 
   /* ── 사이드바 ── */
-  aside { width:232px; flex:none; background:var(--side-bg); color:#fff; display:flex; flex-direction:column; padding:18px 12px 12px; }
-  .brand { padding:4px 10px 18px; display:flex; flex-direction:column; gap:2px; }
-  .brand b { font-size:15px; font-weight:700; letter-spacing:.14em; }
-  .brand span { font-size:11px; color:var(--side-dim); letter-spacing:.02em; }
-  nav { display:flex; flex-direction:column; gap:2px; }
-  .nav-btn { all:unset; cursor:pointer; display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:6px; font-size:13.5px; font-weight:500; color:var(--side-fg); }
-  .nav-btn:hover { background:var(--side-hover); color:#fff; }
-  .nav-btn.on { background:var(--side-hover); color:#fff; }
-  .nav-btn .mark { width:5px; height:16px; border-radius:3px; flex:none; background:transparent; }
-  .nav-btn.on .mark { background:var(--accent); }
+  aside { width:220px; flex:none; background:var(--side-bg); color:var(--text); border-right:1px solid var(--line); display:flex; flex-direction:column; padding:14px 10px 12px; }
+  .brand { padding:4px 10px 14px; }
+  .brand b { font-size:13px; font-weight:600; }
+  nav { display:flex; flex-direction:column; gap:1px; }
+  .nav-btn { all:unset; cursor:pointer; display:flex; align-items:center; gap:9px; padding:7px 10px; border-radius:6px; font-size:13px; font-weight:500; color:var(--side-fg); }
+  .nav-btn:hover { background:var(--side-hover); color:var(--text); }
+  .nav-btn.on { background:var(--side-hover); color:var(--text); }
+  .nav-btn .ico { display:flex; color:var(--icon); }
+  .nav-btn.on .ico { color:var(--accent); }
   .nav-btn .label { flex:1; }
-  .nav-btn .badge { font-size:11px; color:var(--side-dim); font-variant-numeric:tabular-nums; }
-  .cats { border-top:1px solid var(--side-line); padding:14px 10px 6px; display:flex; flex-direction:column; gap:8px; }
-  .cats h6 { margin:0; font-size:10.5px; letter-spacing:.12em; color:#7E8797; font-weight:600; }
-  .cat-btn { all:unset; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; color:var(--side-fg); padding:3px 0; }
-  .cat-btn:hover { color:#fff; }
-  .cat-btn.on { color:#fff; }
-  .cat-btn .cdot { width:7px; height:7px; border-radius:2px; flex:none; }
+  .nav-btn .badge { font-size:12px; color:var(--side-dim); font-variant-numeric:tabular-nums; }
+  .cats { border-top:1px solid var(--side-line); padding:12px 10px 4px; display:flex; flex-direction:column; gap:6px; }
+  .cats h6 { margin:0 0 2px; font-size:12px; color:var(--text-4); font-weight:500; }
+  .cat-btn { all:unset; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12.5px; color:var(--side-fg); padding:3px 0; }
+  .cat-btn:hover, .cat-btn.on { color:var(--text); }
+  .cat-btn.on .name { font-weight:600; }
+  .cat-btn .cdot { width:7px; height:7px; border-radius:50%; flex:none; }
   .cat-btn .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .cat-btn .n { font-variant-numeric:tabular-nums; color:#7E8797; }
+  .cat-btn .n { font-variant-numeric:tabular-nums; color:var(--text-4); }
 
   /* ── 헤더 ── */
   main { flex:1; min-width:0; display:flex; flex-direction:column; }
-  header { height:56px; flex:none; background:var(--surface); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; padding:0 16px; overflow:hidden; }
-  header .vtitle { font-size:15px; font-weight:650; flex:none; white-space:nowrap; }
+  header { height:48px; flex:none; background:var(--surface); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:6px; padding:0 16px; overflow:hidden; }
+  header .vtitle { font-size:14px; font-weight:600; flex:none; white-space:nowrap; }
   header .grow { flex:1 1 0; min-width:0; }
-  header input { flex:1 1 110px; min-width:80px; max-width:200px; height:32px; border:1px solid var(--line); border-radius:6px; padding:0 10px; font-size:12.5px; outline:none; background:var(--surface-2); color:var(--text); }
+  header input { flex:1 1 110px; min-width:80px; max-width:200px; height:30px; border:1px solid var(--line); border-radius:6px; padding:0 10px; font-size:12.5px; outline:none; background:var(--surface-2); color:var(--text); }
   header input:focus { border-color:var(--accent); background:var(--surface); }
-  header select { height:32px; border:1px solid var(--line); border-radius:6px; padding:0 6px; font-size:12px; background:var(--surface-2); color:var(--text); outline:none; flex:0 1 130px; min-width:70px; }
-  .btn-primary { all:unset; cursor:pointer; flex:none; height:32px; padding:0 12px; border-radius:6px; background:var(--accent); color:var(--on-accent); font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  header select { height:30px; border:1px solid var(--line); border-radius:6px; padding:0 6px; font-size:12px; background:var(--surface-2); color:var(--text); outline:none; flex:0 1 130px; min-width:70px; }
+  .btn-primary { all:unset; cursor:pointer; flex:none; height:30px; padding:0 12px; border-radius:6px; background:var(--accent); color:var(--on-accent); font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:6px; white-space:nowrap; }
   .btn-primary:hover { background:var(--accent-h); }
   .toggle { all:unset; cursor:pointer; flex:none; height:32px; padding:0 10px; border:1px solid var(--line); border-radius:6px; background:var(--surface-2); color:var(--text-3); font-size:12px; display:flex; align-items:center; white-space:nowrap; }
   .toggle:hover { background:var(--hover); color:var(--text); }
   .toggle.on { background:var(--accent-bg); border-color:var(--accent); color:var(--accent); font-weight:600; }
+  /* 아이콘 전용 헤더 버튼 — 라벨은 title·aria-label로만 남긴다 */
+  .toggle.hicon { width:32px; padding:0; justify-content:center; border-color:transparent; background:transparent; color:var(--icon); }
+  .toggle.hicon:hover { background:var(--hover); color:var(--text); }
+  .toggle.hicon.on { background:var(--accent-bg); color:var(--accent); border-color:transparent; }
+  .hicon .lbl { display:none; }
 
   #viewport { flex:1; overflow:auto; padding:20px; }
   .card { background:var(--surface); border:1px solid var(--line); border-radius:10px; }
@@ -435,12 +439,11 @@
     .app { flex-direction:column; height:auto; min-height:100dvh; overflow:visible; }
     aside { width:auto; flex-direction:row; align-items:center; gap:12px; padding:10px 12px; overflow-x:auto; }
     .brand { padding:0; flex:none; }
-    .brand span { display:none; }
     /* flex:none + nowrap이 없으면 좁은 폭에서 글자가 세로로 접힌다 — 넘치면 aside가 가로로 스크롤한다 */
     nav { flex-direction:row; gap:3px; flex:none; }
     .nav-btn { padding:7px 9px; font-size:12.5px; white-space:nowrap; flex:none; }
     .nav-btn .label { flex:none; }
-    .nav-btn .mark { display:none; }
+    .nav-btn .ico { display:none; }
     .nav-btn.on { box-shadow:inset 0 -2px 0 var(--accent); }
     .cats { display:none; } /* 분류 토글은 헤더의 분류 select가 대신한다 */
     header { height:auto; flex-wrap:wrap; padding:10px 12px; overflow:visible; }

@@ -4,6 +4,20 @@ import { checklist, checklistTotals } from './progress.js';
 const DAY = 86400000;
 // 프로젝트 뷰(/project)는 여기 없다 — 메뉴가 아니라 목록·보드의 ⑂ 배지와 모달에서 들어간다.
 const VIEWS = { summary: '요약', list: '목록', board: '보드', calendar: '캘린더', notes: '메모' };
+// 인라인 SVG 아이콘 — 외부 아이콘 라이브러리 없이 16px 선 아이콘만 쓴다
+const svg = (d) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICON = {
+  summary: svg('<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>'),
+  list: svg('<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>'),
+  board: svg('<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="10" rx="1.5"/><rect x="17" y="4" width="4" height="13" rx="1.5"/>'),
+  calendar: svg('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>'),
+  notes: svg('<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>'),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  eyeOff: svg('<path d="M3 3l18 18"/><path d="M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-2.6 3.3M6.6 6.6C4.3 8.1 3 12 3 12s4 6 9 6a8.6 8.6 0 0 0 4.4-1.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>'),
+  archive: svg('<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/>'),
+  settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
+  sparkles: svg('<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>'),
+};
 const KIND_LABEL = { status: '진행상황', category: '업무분류' };
 const META_KEY = { status: 'statuses', category: 'categories' };
 
@@ -922,7 +936,7 @@ function render() {
 
   document.getElementById('nav').innerHTML = Object.entries(VIEWS).map(([k, label]) =>
     `<a class="nav-btn ${S.view === k ? 'on' : ''}" href="/${k}">
-      <span class="mark"></span><span class="label">${label}</span>
+      <span class="ico">${ICON[k]}</span><span class="label">${label}</span>
       <span class="badge">${k === 'summary' ? '' : k === 'notes' ? S.notes.length : visible.length}</span></a>`).join('');
 
   const catCount = {};
@@ -934,7 +948,7 @@ function render() {
 
   // 프로젝트 뷰는 메뉴에 없으므로 VIEWS에서 이름이 나오지 않는다
   document.getElementById('view-title').textContent =
-    S.view === 'project' ? '프로젝트' : `${VIEWS[S.view]} 뷰`;
+    S.view === 'project' ? '프로젝트' : VIEWS[S.view];
   const fc = document.getElementById('f-category');
   fc.innerHTML = `<option value="all">분류: 전체</option>${S.categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}`;
   fc.value = S.fCategory;
@@ -1654,6 +1668,16 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'i') { e.preventDefault(); openAi(); }
 });
 
+// 헤더 보조 버튼을 아이콘 버튼으로 — 6개 HTML을 고치지 않고 여기서 한 번에 바꾼다. 원래 글자는 숨긴 라벨로 남긴다.
+for (const [id, icon] of [['hide-done', 'eyeOff'], ['show-arch-notes', 'archive'], ['open-archive', 'archive'], ['open-settings', 'settings'], ['open-ai', 'sparkles']]) {
+  const b = document.getElementById(id);
+  if (!b) continue;
+  const label = b.textContent.trim();
+  b.classList.add('hicon');
+  b.setAttribute('aria-label', label);
+  b.title = b.title ? `${label} — ${b.title}` : label;
+  b.innerHTML = `${ICON[icon]}<span class="lbl">${label}</span>`;
+}
 document.getElementById('q').value = S.query; // 검색창은 정적 DOM이라 복원값을 한 번 넣어 준다
 document.getElementById('q').title = '단축키: /';
 const newBtn = document.getElementById('new-task');
