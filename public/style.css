@@ -122,35 +122,45 @@
   .card { background:var(--surface); border-radius:var(--radius); box-shadow:var(--elev); }
   .card-t { font-size:13px; font-weight:700; }
 
-  /* ── 요약 ── */
+  /* ── 요약 — «한 줄기 오늘» ── */
   .stack { display:flex; flex-direction:column; gap:16px; max-width:1400px; }
-  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
-  .stat { padding:16px 18px; display:flex; flex-direction:column; gap:6px; }
-  .stat .l { font-size:11.5px; color:var(--text-4); font-weight:600; letter-spacing:.02em; }
-  .stat .v { font-size:30px; font-weight:700; line-height:1; font-variant-numeric:tabular-nums; }
-  .stat .h { font-size:11.5px; color:var(--text-4); }
+  .sum { max-width:820px; margin:0 auto; display:flex; flex-direction:column; gap:12px; }
+  .today-h { padding:8px 6px 4px; }
+  .today-h h1 { margin:0; font-size:24px; font-weight:700; letter-spacing:-.03em; }
+  .today-h p { margin:4px 0 0; font-size:13px; color:var(--text-3); }
+  .grp { padding:2px 16px 6px; }
+  .grp-h { display:flex; align-items:center; gap:8px; padding:12px 0 8px; font-size:13px; }
+  .grp-h b { font-weight:700; }
+  .grp-h.late b { color:var(--danger); }
+  .grp-h.today b { color:var(--warn); }
+  .grp-h .n { color:var(--text-4); font-weight:500; font-variant-numeric:tabular-nums; }
+  .grp-h .gdot { width:8px; height:8px; border-radius:50%; flex:none; }
+  .up-row { cursor:pointer; display:flex; align-items:center; gap:12px; padding:9px 6px; margin:0 -6px; border-top:1px solid var(--line-2); border-radius:8px; }
+  .up-row:hover { background:var(--hover); }
+  .up-row .t { flex:1; min-width:0; font-size:13px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .up-row .d { font-size:12px; font-weight:600; min-width:96px; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  /* 접힌 구역 — <summary>를 그룹 머리처럼, 펼침 표시는 회전하는 › */
+  .fold > summary { cursor:pointer; list-style:none; color:var(--text-3); }
+  .fold > summary::-webkit-details-marker { display:none; }
+  .fold > summary::before { content:'›'; display:inline-block; width:10px; transition:transform .12s ease; }
+  .fold[open] > summary::before { transform:rotate(90deg); }
+  .cat-bars { display:flex; flex-direction:column; gap:12px; padding:4px 0 8px; }
   .bar-row { display:flex; flex-direction:column; gap:5px; }
   .bar-row .top { display:flex; justify-content:space-between; font-size:12px; }
-  .bar-row .top b { font-weight:550; }
+  .bar-row .top b { font-weight:600; }
   .bar-row .top span { color:var(--text-4); font-variant-numeric:tabular-nums; }
-  .bar { height:8px; border-radius:4px; background:var(--surface-3); display:flex; overflow:hidden; }
-  .legend { display:flex; gap:14px; margin-top:16px; padding-top:12px; border-top:1px solid var(--line-2); font-size:11px; color:var(--text-4); }
+  .bar { height:8px; border-radius:99px; background:var(--surface-3); display:flex; overflow:hidden; }
+  .legend { display:flex; flex-wrap:wrap; gap:14px; margin-top:4px; padding-top:12px; border-top:1px solid var(--line-2); font-size:11px; color:var(--text-4); }
   .legend span { display:flex; align-items:center; gap:5px; }
-  .legend i { width:8px; height:8px; border-radius:2px; display:block; }
-  .up-row { cursor:pointer; display:flex; align-items:center; gap:12px; padding:10px 8px; border-bottom:1px solid var(--line-2); }
-  .up-row:hover { background:var(--hover); }
-  .up-row .dot { width:6px; height:6px; border-radius:50%; flex:none; }
-  .up-row .t { flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .up-row .c { font-size:11px; color:var(--text-3); background:var(--chip-bg); padding:3px 8px; border-radius:4px; }
-  .up-row .d { font-size:11.5px; font-weight:600; width:104px; text-align:right; font-variant-numeric:tabular-nums; }
-  .up-row input[type=checkbox] { width:15px; height:15px; accent-color:var(--accent); cursor:pointer; flex:none; }
-  .brief-h { display:flex; align-items:center; gap:7px; padding:14px 8px 7px; font-size:11.5px; font-weight:650; color:var(--text-2); border-bottom:1px solid var(--line-2); }
-  .brief-h i { width:7px; height:7px; border-radius:50%; flex:none; }
-  .brief-h .n { color:var(--text-4); font-weight:600; font-variant-numeric:tabular-nums; }
-  .brief-h .btn-sm { height:26px; line-height:24px; padding:0 10px; font-size:11.5px; }
+  .legend i { width:8px; height:8px; border-radius:50%; display:block; }
+  /* 모두 미루기 — 그룹 머리 오른쪽의 작은 메뉴 */
+  .resched { margin-left:auto; position:relative; }
+  .resched > summary { list-style:none; height:26px; line-height:24px; padding:0 12px; font-size:12px; }
+  .resched > summary::-webkit-details-marker { display:none; }
+  .resched-menu { position:absolute; right:0; top:calc(100% + 6px); z-index:5; padding:8px; display:flex; flex-direction:column; gap:6px; min-width:170px; box-shadow:var(--elev-lg); }
+  .resched-menu .btn-sm { height:30px; line-height:28px; text-align:center; }
   /* btn-sm(all:unset)을 쓰지 않는다 — appearance까지 지워져 date 입력의 달력 아이콘이 사라진다 */
-  .resched-date { height:26px; border:1px solid var(--line); border-radius:99px; padding:0 7px; font-size:11.5px; color:var(--text-2); background:var(--surface); }
-  .resched-date:disabled { color:var(--disabled); background:var(--surface-2); }
+  .resched-date { height:30px; border:1px solid var(--line); border-radius:99px; padding:0 10px; font-size:12px; color:var(--text-2); background:var(--surface); }
 
   /* ── 목록 ── */
   .grid-row { min-width:620px; display:grid; grid-template-columns:minmax(240px,1fr) 92px 130px 118px 40px; }
@@ -451,7 +461,6 @@
      않을 만큼만 대응한다. 목록·타임라인·보드는 원래대로 가로 스크롤에 맡긴다 — 열이 좁아지면
      읽을 수 없는 표를 억지로 접는 것보다 낫다. */
   @media (max-width:1100px) {
-    .stats { grid-template-columns:repeat(2,1fr); }
     /* 뷰 제목을 접어 68px를 검색창에 넘긴다 — 이 구간에서 검색창이 min-width(80px)까지
        눌려 글자 대여섯 자밖에 안 보였다. 어느 뷰인지는 nav의 활성 표시가 이미 말한다. */
     header .vtitle { display:none; }
@@ -480,14 +489,9 @@
   }
   /* 폰 전용 압축 — 900px 구간에서 여기까지 접으면 태블릿에서 카드가 지나치게 넓어진다 */
   @media (max-width:560px) {
-    .stats { grid-template-columns:1fr; }
-    .stat { padding:12px 14px; }
-    .stat .v { font-size:24px; }
-    /* 지연 재조정 줄은 버튼이 세 개라 제목 아래로 내려 준다 */
-    .brief-h { flex-wrap:wrap; }
-    .brief-h > span { margin-left:0 !important; width:100%; }
-    .up-row .c { display:none; } /* 분류는 왼쪽 색 점이 이미 말한다 */
-    .up-row .d { width:auto; }
+    .today-h h1 { font-size:22px; }
+    .up-row .chip { display:none; } /* 폰에서는 제목·마감이 우선 — 분류는 목록에서 본다 */
+    .up-row .d { min-width:0; }
     .notes-grid { columns:1; }
     .row2 { grid-template-columns:1fr; }
   }
