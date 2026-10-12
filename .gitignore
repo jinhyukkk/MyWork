@@ -11,3 +11,4 @@ server.log
 
 # 비밀값 — .env.example을 복사해서 쓴다
 .env
+.superpowers/
