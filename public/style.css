@@ -34,7 +34,6 @@
     /* --text-4는 #F4F4F6 위에서 4.33:1로 AA 미달 — 회색 면 위 보조 글자는 text-3을 쓴다 */
     --side-dim:   var(--text-3);
     --side-hover: light-dark(#E9E9EC, #1A1D22);
-    --side-line:  transparent;
     --inv-bg:     light-dark(#14161A, #2C323B);  /* 토스트 */
     --shadow:     light-dark(rgba(20,22,26,.28), rgba(0,0,0,.6));
     --shadow-sm:  light-dark(rgba(20,22,26,.12), rgba(0,0,0,.4));
@@ -177,6 +176,8 @@
   /* 삭제는 hover·포커스 때만 — 행마다 ×가 늘어서면 시선이 거기로 간다 */
   .lrow .x-btn { opacity:0; }
   .lrow:hover .x-btn, .lrow .x-btn:focus-visible { opacity:1; }
+  /* 터치에는 hover가 없다 — 폭과 무관하게 */
+  @media (hover:none) { .lrow .x-btn { opacity:1; } }
   .chip { font-size:11.5px; padding:2px 8px; border-radius:99px; font-weight:500; white-space:nowrap; }
   /* ── 사용자 지정 색 ──
      설정에서 고른 색을 글자에 그대로 쓰면 대비가 무너진다(라이트에서 노랑 1.5:1, 다크에서 남색 3.3:1).
@@ -354,7 +355,7 @@
               display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:transparent; }
   .done-btn:hover { border-color:var(--ok); color:var(--ok); }
   .done-btn.on { background:var(--ok); border-color:var(--ok); color:var(--on-accent); }
-  .completing .t, .completing .tt { text-decoration:line-through; color:var(--text-4); }
+  .completing .t { text-decoration:line-through; color:var(--text-4); }
 
   /* ── 체크리스트 ── */
   .prog { height:5px; flex:none; border-radius:3px; background:var(--surface-3); overflow:hidden; }
@@ -460,7 +461,7 @@
   header :focus-visible { outline-offset:-2px !important; }
 
   /* ── 좁은 화면 ──
-     데스크톱 전용으로 만들었지만 폰으로 «오늘의 액션»만 확인하는 쓰임이 있어, 레이아웃이 깨지지
+     데스크톱 전용으로 만들었지만 폰으로 «요약»만 확인하는 쓰임이 있어, 레이아웃이 깨지지
      않을 만큼만 대응한다. 타임라인·보드는 가로 스크롤에 맡긴다 — 열이 좁아지면 읽을 수 없는 표를
      억지로 접는 것보다 낫다. 목록은 묶음 리스트라 세로로 읽힌다. */
   @media (max-width:1100px) {
@@ -493,7 +494,6 @@
   /* 폰 전용 압축 — 900px 구간에서 여기까지 접으면 태블릿에서 카드가 지나치게 넓어진다 */
   @media (max-width:560px) {
     .lrow .chip { display:none; }
-    .lrow .x-btn { opacity:1; } /* 터치에는 hover가 없다 */
     .today-h h1 { font-size:22px; }
     .up-row .chip { display:none; } /* 폰에서는 제목·마감이 우선 — 분류는 목록에서 본다 */
     .up-row .d { min-width:0; }

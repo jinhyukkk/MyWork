@@ -1076,7 +1076,14 @@ function closeNote() {
 
 function openTask(id) {
   const t = S.tasks.find((x) => x.id === Number(id));
-  if (t) { S.modal = { ...t }; S.taskSnap = snap(S.modal, TASK_FIELDS); S.newSub = ''; S.error = ''; S.focusId = 'd-title'; render(); }
+  if (!t) return;
+  // 완료 대기 중이면 먼저 확정하고 완료 상태로 연다 — 옛 상태로 열면 저장 시 조용히 완료가 풀리고(반복은 중복 생성),
+  // 모달에서 바꾼 상태는 뒤늦게 도착한 PATCH에 덮인다. 스냅샷도 같은 값에서 찍어 바로 닫아도 묻지 않는다.
+  const completing = isCompleting(t);
+  if (completing) commitPending();
+  S.modal = { ...t, ...(completing && { status: firstDone() }) };
+  S.taskSnap = snap(S.modal, TASK_FIELDS); S.newSub = ''; S.error = ''; S.focusId = 'd-title';
+  render();
 }
 function openNew(status, parentId = null) {
   // 하위 태스크는 상위의 분류·마감일을 물려받는다 — 매번 다시 고르지 않도록
