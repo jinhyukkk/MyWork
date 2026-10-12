@@ -439,22 +439,24 @@ function viewCalendar(list) {
     const key = iso(d), inMonth = d.getMonth() === m - 1, isToday = key === TODAY;
     const evts = list.filter((t) => t.due === key);
     cells.push({
-      html: `<div class="day" style="background:${inMonth ? 'var(--surface)' : 'var(--surface-2)'}">
-        <div style="display:flex;align-items:center;gap:5px">
-          <span class="n" style="font-weight:${isToday ? 700 : 500};background:${isToday ? 'var(--accent)' : 'transparent'};color:${isToday ? 'var(--on-accent)' : !inMonth ? 'var(--text-4)' : d.getDay() === 0 ? 'var(--danger)' : d.getDay() === 6 ? 'var(--accent)' : 'var(--text-2)'}">${d.getDate()}</span>
-        </div>
-        ${evts.map((t) => `<div class="ev tint" data-act="open" data-id="${t.id}" style="--c:${CAT_COLOR(t.category)};text-decoration:${isDone(t.status) ? 'line-through' : 'none'}">${esc(t.title)}</div>`).join('')}
+      html: `<div class="day ${inMonth ? '' : 'out'}">
+        <span class="n ${isToday ? 'today' : ''}" style="${isToday ? '' : `color:${d.getDay() === 0 ? 'var(--danger)' : d.getDay() === 6 ? 'var(--accent)' : 'var(--text-2)'}`}">${d.getDate()}</span>
+        ${evts.map((t) => {
+          // 지연 건은 분류색 대신 경고색 — 캘린더에서도 «늦은 것»이 먼저 보여야 한다
+          const late = !isDone(t.status) && !isWaiting(t.status) && t.due < TODAY;
+          return `<div class="ev tint ${late ? 'late' : ''}" data-act="open" data-id="${t.id}" style="--c:${CAT_COLOR(t.category)};text-decoration:${isDone(t.status) ? 'line-through' : 'none'}">${esc(t.title)}</div>`;
+        }).join('')}
       </div>`,
       empty: evts.length === 0,
     });
   }
   if (cells.slice(35).every((c) => c.empty)) cells.length = 35;
 
-  return `<div class="card" style="overflow:hidden">
+  return `<div class="cal">
     <div class="cal-head">
-      <button class="icon-btn" data-act="month" data-n="-1">‹</button>
+      <button class="icon-btn" data-act="month" data-n="-1" aria-label="이전 달">‹</button>
       <div class="m">${y}년 ${m}월</div>
-      <button class="icon-btn" data-act="month" data-n="1">›</button>
+      <button class="icon-btn" data-act="month" data-n="1" aria-label="다음 달">›</button>
       <button class="icon-btn" data-act="month" data-n="0">오늘</button>
       <div style="flex:1"></div>
       <div class="hint">마감일 기준 · 태스크를 클릭하면 수정</div>
@@ -578,7 +580,7 @@ function projectHead(p) {
     <span class="dot" style="background:${CAT_COLOR(p.category)}"></span>
     <b data-act="open" data-id="${p.id}" style="cursor:pointer">${esc(p.title)}</b>
     <span class="chip tint" style="--c:${STATUS_COLOR(p.status)}">${esc(p.status)}</span>
-    <span class="c">${esc(p.category)}</span>
+    <span class="chip tint" style="--c:${CAT_COLOR(p.category)}">${esc(p.category)}</span>
     ${childBadge(c)}
     <div style="flex:1"></div>
     <span style="color:${dm.color};font-size:12px;font-weight:600">${dm.text}</span>
@@ -599,7 +601,7 @@ function viewProjectList() {
     return `<a class="pj-card" href="/project?task=${p.id}">
       <span class="dot" style="background:${CAT_COLOR(p.category)}"></span>
       <b>${esc(p.title)}</b>
-      <span class="c">${esc(p.category)}</span>
+      <span class="chip tint" style="--c:${CAT_COLOR(p.category)}">${esc(p.category)}</span>
       ${childBadge(c)}
       <div style="flex:1"></div>
       <span style="color:${dm.color};font-size:12px">${dm.text}</span>

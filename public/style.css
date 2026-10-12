@@ -190,12 +190,12 @@
   .x-btn:hover { background:var(--danger-bg); color:var(--danger); }
   .empty { padding:48px; text-align:center; color:var(--text-4); font-size:13px; }
 
-  /* ── 보드 ──
-     열은 회색 박스로 경계를 분명히 한다(투명 열은 경계가 흐려 되돌렸다). 폭 272px 고정 — 상태가 늘면 열이 좁아지는 대신 가로로 스크롤한다. */
+  /* ── 보드 ── 열은 투명, 카드만 흰 판으로 띄운다. 폭 272px 고정 — 상태가 늘면 가로로 스크롤한다. */
   /* min-height 100% — 가로 스크롤바가 가장 긴 열 밑이 아니라 화면 바닥에 붙게 */
   .board { display:flex; gap:12px; align-items:flex-start; overflow-x:auto; padding-bottom:8px; min-height:100%; }
-  .bcol { flex:0 0 272px; min-height:160px; padding:10px; background:var(--surface-3); border:1px solid var(--line); border-radius:10px; display:flex; flex-direction:column; gap:8px; }
-  .bcol.drag { border-color:var(--accent); }
+  .bcol { flex:0 0 272px; min-height:160px; padding:6px; border-radius:var(--radius); display:flex; flex-direction:column; gap:8px; }
+  /* 드래그 중에는 모든 열이 드롭 대상임을 옅게 알린다 */
+  .bcol.drag { background:color-mix(in oklab, var(--accent-bg) 60%, transparent); }
   .bcol.dragging { opacity:.45; }
   /* 열 삽입선은 좌우로 — 체크리스트(위아래)와 방향만 다르다 */
   .bcol.over { box-shadow:inset 3px 0 0 var(--accent); }
@@ -205,40 +205,44 @@
   .bcol .head .ck-grip { opacity:0; width:8px; }
   .bcol .head:hover .ck-grip { opacity:1; }
   .bcol .head .dot { width:8px; height:8px; border-radius:50%; flex:none; }
-  .bcol .head .l { font-size:13px; font-weight:600; }
+  .bcol .head .l { font-size:13px; font-weight:700; }
   .bcol .head .n { font-size:12px; color:var(--text-3); font-variant-numeric:tabular-nums; }
   .col-add { all:unset; cursor:pointer; margin-left:auto; width:24px; height:24px; border-radius:5px; display:flex; align-items:center; justify-content:center; color:var(--icon); }
   .col-add:hover { background:var(--hover); color:var(--text); }
-  .bcard { background:var(--surface); border:1px solid var(--line); border-radius:6px; padding:10px 12px; cursor:grab; display:flex; flex-direction:column; gap:6px; }
-  .bcard:hover { border-color:var(--icon); }
+  .bcard { background:var(--surface); border-radius:var(--radius); box-shadow:var(--elev); padding:12px 14px; cursor:grab; display:flex; flex-direction:column; gap:8px; }
+  .bcard:hover { box-shadow:0 0 0 1px var(--elev-ring), 0 6px 20px var(--shadow-sm); }
   .bcard.dragging { opacity:.4; }
   .bcard.done { opacity:.6; }
   .bcard.done .tt { text-decoration:line-through; }
   .bcard .tt { font-size:13px; font-weight:500; line-height:1.45; text-wrap:pretty; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
   .bcard .meta { display:flex; align-items:center; gap:10px; font-size:12px; color:var(--text-3); min-width:0; }
   /* 분류는 색 배경 칩 — 점보다 한눈에 갈린다. 글자색 보정은 .tint가 맡는다 */
-  .bcard .meta .cat { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; font-weight:500; padding:2px 7px; border-radius:4px; }
+  .bcard .meta .cat { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; font-weight:500; padding:2px 8px; border-radius:99px; }
   .bcard .meta .sb-badge { background:none; padding:0; margin:0; text-decoration:none; font-size:12px; font-weight:400; color:inherit; }
   .bcard .meta .sb-badge.late { color:var(--danger); }
   .bcard .meta .du { margin-left:auto; flex:none; font-variant-numeric:tabular-nums; white-space:nowrap; }
   .empty-col { font-size:12px; color:var(--text-4); padding:8px 2px; }
-  .bq-form input { width:100%; box-sizing:border-box; height:34px; border:1px solid var(--accent); border-radius:6px; padding:0 10px; font-size:13px; outline:none; background:var(--surface); color:var(--text); }
+  .bq-form input { width:100%; box-sizing:border-box; height:38px; border:1px solid var(--accent); border-radius:10px; padding:0 12px; font-size:13px; outline:none; background:var(--surface); color:var(--text); box-shadow:var(--elev); }
 
-  /* ── 캘린더 ── */
-  .cal-head { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--line); }
-  .icon-btn { all:unset; cursor:pointer; height:28px; min-width:28px; padding:0 8px; border:1px solid var(--line); border-radius:99px; display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--text-3); }
-  .icon-btn:hover { background:var(--hover); }
-  .cal-head .m { font-size:14px; font-weight:650; min-width:120px; text-align:center; }
-  .cal-head .hint { font-size:11.5px; color:var(--text-4); }
+  /* ── 캘린더 ── 그리드 선 대신 흰 둥근 타일 */
+  .cal { display:flex; flex-direction:column; gap:8px; }
+  .cal-head { display:flex; align-items:center; gap:8px; padding:0 2px; }
+  .icon-btn { all:unset; cursor:pointer; height:30px; min-width:30px; padding:0 10px; border-radius:99px; display:flex; align-items:center; justify-content:center; font-size:12.5px; color:var(--text-2); background:var(--surface); box-shadow:var(--elev); }
+  .icon-btn:hover { color:var(--accent); }
+  .cal-head .m { font-size:15px; font-weight:700; min-width:120px; text-align:center; }
+  .cal-head .hint { font-size:12px; color:var(--text-3); }
   /* 1fr는 minmax(auto,1fr)이라 칸의 min-content(=일정 제목 길이)가 하한이 된다 —
      좁은 화면에서 7칸이 컨테이너를 넘겨 오른쪽 날짜가 화면 밖으로 나갔다. */
-  .week { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); border-bottom:1px solid var(--line); background:var(--surface-2); }
-  .week div { padding:8px 10px; font-size:11.5px; font-weight:650; }
-  .days { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); }
-  .day { min-height:110px; border-right:1px solid var(--line-2); border-bottom:1px solid var(--line-2); padding:6px; display:flex; flex-direction:column; gap:4px; }
-  .day .n { font-size:11.5px; width:20px; height:20px; display:flex; align-items:center; justify-content:center; border-radius:50%; }
-  .day .ev { cursor:pointer; font-size:10.5px; line-height:1.35; padding:3px 6px; border-radius:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border-left:3px solid var(--tc); }
+  .week { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px; }
+  .week div { padding:4px 8px; font-size:12px; font-weight:600; }
+  .days { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px; }
+  .day { min-height:108px; background:var(--surface); border-radius:8px; box-shadow:var(--elev); padding:6px; display:flex; flex-direction:column; gap:4px; min-width:0; }
+  .day.out { opacity:.5; }
+  .day .n { font-size:12px; font-weight:500; width:22px; height:22px; display:flex; align-items:center; justify-content:center; border-radius:50%; }
+  .day .n.today { background:var(--accent); color:var(--on-accent); font-weight:700; }
+  .day .ev { cursor:pointer; font-size:11px; line-height:1.35; padding:3px 7px; border-radius:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .day .ev:hover { filter:brightness(.96); }
+  .day .ev.late { color:var(--danger); background:var(--danger-bg); }
 
   /* ── 타임라인 ── */
   .gantt-head { display:flex; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); gap:8px; }
@@ -258,7 +262,7 @@
   .g-row .fix span { font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .g-track { flex:1; position:relative; padding:10px 0; }
   .g-track .today { position:absolute; top:0; bottom:0; width:1px; background:var(--danger); opacity:.5; }
-  .g-track .bar2 { position:absolute; top:9px; height:20px; border-radius:5px; cursor:pointer; min-width:6px; }
+  .g-track .bar2 { position:absolute; top:9px; height:20px; border-radius:99px; cursor:pointer; min-width:6px; }
   .g-track .bar2:hover { filter:brightness(1.08); }
   .g-track .lab { position:absolute; top:9px; height:20px; display:flex; align-items:center; pointer-events:none; }
   .g-track .lab span { font-size:10.5px; color:var(--text-4); font-weight:600; white-space:nowrap; padding:0 6px; }
@@ -266,17 +270,15 @@
   /* ── 프로젝트 뷰 (구 타임라인) ──
      간트 렌더러는 그대로 쓰고, «한 프로젝트의 하위들»에 필요한 것만 얹는다. */
   .pj-head { display:flex; align-items:center; gap:10px; padding:14px 18px; }
-  .pj-head b { font-size:14.5px; font-weight:650; }
-  .pj-head .dot { width:8px; height:8px; border-radius:2px; flex:none; }
-  .pj-head .c { font-size:11.5px; color:var(--text-3); background:var(--chip-bg); padding:3px 8px; border-radius:4px; }
+  .pj-head b { font-size:15px; font-weight:700; }
+  .pj-head .dot { width:8px; height:8px; border-radius:50%; flex:none; }
   .pj-back { font-size:11.5px; color:var(--text-4); text-decoration:none; padding-right:4px; }
   .pj-back:hover { color:var(--accent); }
-  .pj-card { display:flex; align-items:center; gap:10px; padding:11px 8px; border-bottom:1px solid var(--line-2);
+  .pj-card { display:flex; align-items:center; gap:10px; padding:11px 8px; border-top:1px solid var(--line-2); border-radius:8px;
              text-decoration:none; color:inherit; }
   .pj-card:hover { background:var(--hover); }
   .pj-card b { font-size:13px; font-weight:550; }
-  .pj-card .dot { width:7px; height:7px; border-radius:2px; flex:none; }
-  .pj-card .c { font-size:11px; color:var(--text-3); background:var(--chip-bg); padding:2px 7px; border-radius:4px; }
+  .pj-card .dot { width:7px; height:7px; border-radius:50%; flex:none; }
   .pj-t { font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
   .pj-t.done { text-decoration:line-through; color:var(--text-4); }
   /* 상위 마감 기준선 — 오늘선(붉은 실선)과 구분되게 점선으로 */
@@ -286,8 +288,8 @@
   /* 날짜 인라인 편집. 앱에서 시작일이 보이는 유일한 자리다. */
   .pj-dates { width:210px; flex:none; display:flex; align-items:center; gap:6px; padding:7px 12px;
               font-size:11.5px; color:var(--text-3); }
-  .pj-dates input { width:100%; min-width:0; height:26px; border:1px solid var(--line); border-radius:5px;
-                    padding:0 6px; font-size:11.5px; background:var(--surface-2); color:var(--text); outline:none; }
+  .pj-dates input { width:100%; min-width:0; height:26px; border:1px solid var(--line); border-radius:99px;
+                    padding:0 8px; font-size:11.5px; background:var(--surface-2); color:var(--text); outline:none; }
   .pj-dates input:focus { border-color:var(--accent); background:var(--surface); }
 
   /* ── 모달 ── */
@@ -397,11 +399,11 @@
 
   /* ── 메모 (Keep 스타일) ── */
   .notes-wrap { max-width:1400px; display:flex; flex-direction:column; gap:20px; }
-  .notes-sec h6 { margin:0 0 8px; font-size:11px; letter-spacing:.08em; color:var(--text-4); font-weight:650; }
+  .notes-sec h6 { margin:0 0 8px; font-size:12px; color:var(--text-3); font-weight:700; }
   /* 마소너리는 CSS columns로 — JS 라이브러리 불필요 */
   .notes-grid { columns:4 240px; column-gap:14px; }
-  .note-card { break-inside:avoid; margin-bottom:14px; background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:13px 14px 8px; cursor:pointer; display:flex; flex-direction:column; gap:8px; }
-  .note-card:hover { box-shadow:0 2px 10px var(--shadow-sm); }
+  .note-card { break-inside:avoid; margin-bottom:14px; background:var(--surface); border-radius:var(--radius); box-shadow:var(--elev); padding:14px 16px 8px; cursor:pointer; display:flex; flex-direction:column; gap:8px; }
+  .note-card:hover { box-shadow:0 0 0 1px var(--elev-ring), 0 6px 20px var(--shadow-sm); }
   /* 색을 고른 카드는 파스텔 배경이 고정이라 다크모드에서도 글자를 어둡게 둬야 읽힌다 */
   .note-card.tinted { color:#14161A; }
   .note-card.tinted .nb { color:#3C424C; }
@@ -411,7 +413,7 @@
   .note-card .note-task:hover { filter:brightness(.95); }
   .note-card .note-actions { display:flex; gap:2px; justify-content:flex-end; opacity:0; }
   .note-card:hover .note-actions { opacity:1; }
-  .note-actions button { all:unset; cursor:pointer; width:26px; height:26px; border-radius:5px; display:flex; align-items:center; justify-content:center; font-size:12.5px; }
+  .note-actions button { all:unset; cursor:pointer; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12.5px; }
   /* 배경이 카드색(파스텔·기본·다크)마다 달라 고정 회색이 안 통한다 — 글자색에서 섞어 낸다 */
   .note-actions button:hover { background:color-mix(in oklab, currentColor 14%, transparent); }
   .note-actions button[disabled] { opacity:.3; cursor:default; }
@@ -420,13 +422,13 @@
   .swatches button:hover { transform:scale(1.12); }
   .swatches button.on { border-color:var(--accent); box-shadow:0 0 0 1.5px var(--accent); }
   /* 빠른 작성 — 접힌 한 줄이 클릭하면 폼으로 펼쳐진다 */
-  .note-quick { width:100%; max-width:560px; margin:0 auto; background:var(--surface); border:1px solid var(--line); border-radius:10px; box-shadow:0 1px 5px var(--shadow-sm); }
+  .note-quick { width:100%; max-width:560px; margin:0 auto; background:var(--surface); border-radius:14px; box-shadow:var(--elev); }
   .note-quick.collapsed { padding:12px 16px; color:var(--text-4); font-size:13px; cursor:text; }
   .note-quick:not(.collapsed) { padding:12px 14px; display:flex; flex-direction:column; gap:8px; }
   .note-quick input, .note-quick textarea { border:none; outline:none; font-size:13px; background:transparent; color:var(--text); resize:vertical; line-height:1.5; font-family:inherit; }
   .note-quick input { font-weight:650; }
   .nq-foot { display:flex; align-items:center; gap:8px; }
-  .nq-foot select { height:30px; border:1px solid var(--line); border-radius:6px; font-size:12px; background:var(--surface-2); color:var(--text); outline:none; padding:0 6px; }
+  .nq-foot select { height:30px; border:1px solid var(--line); border-radius:99px; font-size:12px; background:var(--surface-2); color:var(--text); outline:none; padding:0 10px; }
 
   /* ── 설정 ── */
   .tabs { display:flex; gap:4px; border-bottom:1px solid var(--line-2); }
