@@ -375,8 +375,8 @@ function viewList(list) {
   };
 
   return `<div class="lst">
-    <div class="seg" role="tablist" aria-label="묶는 기준">${LIST_GROUPS.map(([k, l]) =>
-      `<button role="tab" aria-selected="${mode === k}" class="${mode === k ? 'on' : ''}" data-act="list-group" data-mode="${k}">${l}</button>`).join('')}</div>
+    <div class="seg" role="group" aria-label="묶는 기준">${LIST_GROUPS.map(([k, l]) =>
+      `<button aria-pressed="${mode === k}" class="${mode === k ? 'on' : ''}" data-act="list-group" data-mode="${k}">${l}</button>`).join('')}</div>
     ${groups.map((g) => `<section class="card grp">${head(g)}${nest(g.items).map(row).join('')}</section>`).join('')
       || '<div class="card empty">조건에 맞는 태스크가 없습니다.</div>'}
   </div>`;
