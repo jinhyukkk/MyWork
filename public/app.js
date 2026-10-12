@@ -430,8 +430,9 @@ function viewCalendar(list) {
   const [y, m] = S.calMonth.split('-').map(Number);
   const first = new Date(y, m - 1, 1);
   const gridStart = new Date(first.getTime() - first.getDay() * DAY);
+  // 회색 배경 위 요일 글자: color-mix로 텍스트색 쪽으로 20% 당겨 4.5:1 확보 (라이트는 어둡게, 다크는 밝게)
   const week = ['일', '월', '화', '수', '목', '금', '토']
-    .map((w, i) => `<div style="color:${i === 0 ? 'var(--danger)' : i === 6 ? 'var(--accent)' : 'var(--text-3)'}">${w}</div>`).join('');
+    .map((w, i) => `<div style="color:${i === 0 ? 'color-mix(in oklab, var(--danger) 80%, var(--text))' : i === 6 ? 'color-mix(in oklab, var(--accent) 80%, var(--text))' : 'var(--text-3)'}">${w}</div>`).join('');
 
   const cells = [];
   for (let i = 0; i < 42; i++) {
