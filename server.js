@@ -15,7 +15,7 @@ export function createApp(db = openDb(process.env.MYWORK_DB_PATH), getAiClient =
   app.use(express.json());
   // 뷰별 페이지가 물리 파일로 나뉘어 있다 — /summary → summary.html
   app.use(express.static(path.join(ROOT, 'public'), { extensions: ['html'] }));
-  app.get('/', (_req, res) => res.redirect('/summary'));
+  app.get('/', (_req, res) => res.redirect('/home'));
 
   /** store 결과를 HTTP 응답으로 옮긴다. */
   const reply = (res, result, okStatus = 200) =>

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MyWork · 홈</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body data-view="home">
+<div class="app">
+  <aside>
+    <div class="brand"><b>MyWork</b></div>
+    <nav id="nav"></nav>
+    <div style="flex:1"></div>
+    <div class="cats"><h6>업무분류</h6><div id="sidebar-cats" style="display:flex;flex-direction:column;gap:0"></div></div>
+  </aside>
+  <!-- 입력창은 정적 DOM이다. render()가 갈아끼우는 영역 밖에 두어야 재렌더가 타이핑·한글 조합을 지우지 않는다. -->
+  <main class="home">
+    <div class="h-main">
+      <div id="h-head" class="h-head"></div>
+      <div class="h-box">
+        <div class="h-input">
+          <span class="h-caret">›</span>
+          <input id="h-q" autocomplete="off" aria-label="명령 입력" aria-controls="h-palette"
+                 placeholder="할 일 추가, 태스크 찾기, AI에게 지시… 입력하거나 / 로 명령어">
+          <span class="kbd" title="Ctrl+K / ⌘K로 이 입력창에 포커스">⌘K</span>
+          <button class="h-send" data-act="h-send" aria-label="실행">↑</button>
+        </div>
+        <div id="h-palette" role="listbox" aria-label="명령 팔레트"></div>
+        <div id="h-status" aria-live="polite"></div>
+      </div>
+      <div id="h-cards" class="h-cards"></div>
+    </div>
+    <section class="tl" id="h-tl" aria-label="이번 주 마감"></section>
+  </main>
+</div>
+<div id="modal-root"></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
