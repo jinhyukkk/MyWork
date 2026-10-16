@@ -576,6 +576,24 @@ test('메모 — 분류 이름변경은 따라오고 삭제는 NULL', async (t) 
   assert.equal((await (await c('/api/notes')).json()).find((n) => n.id === note.id).category, null);
 });
 
+// 가짜 스트리밍 클라이언트 — 응답의 text 블록을 조각(text_delta) 이벤트로 흘리고 finalMessage()로 원본을 준다
+function fakeStreamClient(sent, replies) {
+  return { beta: { messages: { stream: (req) => {
+    sent.push(structuredClone(req));
+    const res = replies.shift();
+    return {
+      async *[Symbol.asyncIterator]() {
+        for (const b of res.content) {
+          if (b.type === 'text') for (const v of [b.text.slice(0, 3), b.text.slice(3)]) yield { type: 'content_block_delta', delta: { type: 'text_delta', text: v } };
+        }
+      },
+      finalMessage: async () => res,
+    };
+  } } } };
+}
+// NDJSON 응답을 줄 단위 객체 배열로
+const ndjson = async (r) => (await r.text()).trim().split('\n').map((l) => JSON.parse(l));
+
 test('AI 지시 — 도구 호출 루프가 DB를 바꾸고 결과를 돌려준다 (가짜 Claude)', async (t) => {
   const db = openDb(':memory:');
   const sent = [];
@@ -584,7 +602,7 @@ test('AI 지시 — 도구 호출 루프가 DB를 바꾸고 결과를 돌려준�
     { stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 'tu1', name: 'create_task', input: { title: 'AI가 만든 일', category: '새분류' } }] },
     { stop_reason: 'end_turn', content: [{ type: 'text', text: '«AI가 만든 일»을 만들었습니다.' }] },
   ];
-  const fake = { beta: { messages: { create: async (req) => { sent.push(structuredClone(req)); return replies.shift(); } } } };
+  const fake = fakeStreamClient(sent, replies);
   const srv = createApp(db, () => fake).listen(0);
   t.after(() => srv.close());
   const c = (body) => fetch(`http://localhost:${srv.address().port}/api/ai`, {
@@ -593,7 +611,11 @@ test('AI 지시 — 도구 호출 루프가 DB를 바꾸고 결과를 돌려준�
 
   const r = await c({ messages: [{ role: 'user', content: '할 일 하나 만들어줘' }] });
   assert.equal(r.status, 200);
-  const out = await r.json();
+  assert.match(r.headers.get('content-type'), /ndjson/);
+  const lines = await ndjson(r);
+  const out = lines.at(-1);
+  assert.equal(out.t, 'done');
+  assert.equal(lines.filter((l) => l.t === 'text').map((l) => l.v).join(''), out.reply, '흘려보낸 조각을 이으면 최종 답변');
   assert.equal(out.reply, '«AI가 만든 일»을 만들었습니다.');
   assert.deepEqual(out.actions.map((a) => [a.tool, a.error]), [['create_task', false]]);
   assert.ok(store.listTasks(db).some((x) => x.title === 'AI가 만든 일' && x.category === '새분류'), 'MCP와 같은 규칙 — 없는 분류는 자동 생성');
@@ -625,15 +647,15 @@ test('AI 지시 — 삭제 도구는 실행하지 않고 확인 대기로 돌려
     ] },
     { stop_reason: 'end_turn', content: [{ type: 'text', text: '확인 버튼을 눌러 주세요.' }] },
   ];
-  const fake = { beta: { messages: { create: async (req) => { sent.push(structuredClone(req)); return replies.shift(); } } } };
+  const fake = fakeStreamClient(sent, replies);
   const srv = createApp(db, () => fake).listen(0);
   t.after(() => srv.close());
   const base = `http://localhost:${srv.address().port}`;
 
-  const out = await (await fetch(`${base}/api/ai`, {
+  const out = (await ndjson(await fetch(`${base}/api/ai`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages: [{ role: 'user', content: '첫 태스크 지워줘' }] }),
-  })).json();
+  }))).at(-1);
 
   assert.ok(store.listTasks(db).some((x) => x.id === victim.id), 'AI 단계에서는 지워지지 않는다');
   assert.deepEqual(out.confirm, [{ kind: '태스크', id: victim.id, title: victim.title, url: `/api/tasks/${victim.id}` }], '중복 없이 한 건');

@@ -44,17 +44,19 @@ export function createAgent(db, getClient = defaultClient) {
 
   /**
    * @param history [{ role: 'user'|'assistant', content: string }] — 마지막이 이번 지시
+   * @param onText  답변 글자 조각이 생성되는 대로 불린다(화면 스트리밍용)
    * @returns {{ reply: string, actions: { tool, input, error }[], confirm: { kind, id, title, url }[] }}
    */
-  return async function run(history) {
+  return async function run(history, onText = () => {}) {
     client ??= getClient();
     // 이전 턴은 텍스트만 다시 보낸다(thinking 블록을 재전송하지 않으므로 이력 편집 검사와 무관)
     const messages = history.slice(-HISTORY).map(({ role, content }) => ({ role, content }));
     const actions = [];
     const confirm = []; // 사용자 확인을 기다리는 삭제
+    const texts = []; // 단계마다 나온 답변 — 스트리밍으로 보인 글과 최종 reply가 같도록 전부 모은다
 
     for (let step = 0; step < MAX_STEPS; step++) {
-      const res = await client.beta.messages.create({
+      const stream = client.beta.messages.stream({
         model: MODEL,
         max_tokens: 16000,
         output_config: { effort: 'medium' },
@@ -65,16 +67,19 @@ export function createAgent(db, getClient = defaultClient) {
         tools,
         messages,
       });
+      for await (const ev of stream) {
+        if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') onText(ev.delta.text);
+      }
+      const res = await stream.finalMessage();
 
       if (res.stop_reason === 'refusal') return { reply: '요청을 처리할 수 없습니다(안전 정책).', actions, confirm };
       messages.push({ role: 'assistant', content: res.content });
+      const text = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+      if (text) texts.push(text);
       if (res.stop_reason === 'pause_turn') continue;
 
       const uses = res.content.filter((b) => b.type === 'tool_use');
-      if (res.stop_reason !== 'tool_use' || !uses.length) {
-        const reply = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
-        return { reply: reply || '(응답 없음)', actions, confirm };
-      }
+      if (res.stop_reason !== 'tool_use' || !uses.length) return { reply: texts.join('\n\n') || '(응답 없음)', actions, confirm };
 
       // 같은 턴의 결과는 한 user 메시지에 모아 보낸다
       messages.push({

@@ -1220,7 +1220,44 @@ function aiLog() {
     return `<div class="ai-msg ${m.role}${m.error ? ' err' : ''}${md ? ' md' : ''}">${md ? renderMd(m.content) : esc(m.content)}${acts.length ? `<div class="ai-acts">${acts.map((a) =>
         `<span class="chip">${a.error ? '✕' : '✓'} ${AI_ACT[a.tool]}${a.input?.title ? ` · ${esc(a.input.title)}` : a.input?.id ? ` #${a.input.id}` : ''}</span>`).join('')}</div>` : ''}${confirm}</div>`;
   };
-  return S.aiMsgs.map(bubble).join('') + (S.aiBusy ? '<div class="ai-msg assistant busy">처리 중…</div>' : '');
+  // 답변 글자가 흘러들기 시작하면 «처리 중»은 그 말풍선이 대신한다
+  return S.aiMsgs.map(bubble).join('') + (S.aiBusy && S.aiMsgs.at(-1)?.role === 'user' ? '<div class="ai-msg assistant busy">처리 중…</div>' : '');
+}
+
+// 스트리밍 중엔 화면 전체(render) 대신 대화 로그만 다시 그린다 — 조각마다 홈 전체를 갈아끼우지 않게 프레임당 한 번
+let aiFrame = 0;
+function drawAiLog() {
+  if (aiFrame) return;
+  aiFrame = requestAnimationFrame(() => {
+    aiFrame = 0;
+    const log = document.getElementById('ai-log');
+    if (!log) return;
+    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40; // 위로 올려 읽는 중이면 끌어내리지 않는다
+    log.innerHTML = aiLog();
+    if (atBottom) log.scrollTop = log.scrollHeight;
+  });
+}
+
+/** /api/ai NDJSON 스트림을 읽는다. 글자 조각은 onText로, 마지막 {t:'done'} 결과를 돌려준다. */
+async function streamAi(messages, onText) {
+  const res = await fetch('/api/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages }) });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || '요청 실패'); // 첫 조각 전 실패는 일반 JSON 오류
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += value;
+    const lines = buf.split('\n');
+    buf = lines.pop(); // 아직 덜 온 줄
+    for (const l of lines.filter(Boolean)) {
+      const ev = JSON.parse(l);
+      if (ev.t === 'text') onText(ev.v);
+      else if (ev.t === 'error') throw new Error(ev.error);
+      else if (ev.t === 'done') return ev;
+    }
+  }
+  throw new Error('응답이 중간에 끊겼습니다');
 }
 const AI_HINT = `<div class="ai-hint">예) «내일까지 인사시스템 배포 점검 태스크 만들어줘» · «오늘 뭐 해야 해?» · «지연된 것 전부 다음 주 월요일로 미뤄줘» · «이번 주 회고 요약해줘»</div>`;
 // AI 채팅은 홈에만 있다 — 메인 화면이 채팅 화면으로 바뀌고 입력은 홈 입력창(h-q)이 맡는다
@@ -1261,14 +1298,23 @@ async function sendAi(text) {
   S.aiMsgs.push({ role: 'user', content: text });
   S.aiBusy = true; openAi();
   let actions = [];
+  let msg = null; // 첫 조각이 올 때 만드는 답변 말풍선
   try {
     // 서버는 무상태 — 실패 응답은 이력에서 빼고 보낸다(모델이 오류 문구를 자기 말로 착각하지 않게)
     const history = S.aiMsgs.filter((m) => !m.error).map(({ role, content }) => ({ role, content }));
-    const r = await send('/api/ai', 'POST', { messages: history });
+    const r = await streamAi(history, (v) => {
+      if (!msg) S.aiMsgs.push(msg = { role: 'assistant', content: '' });
+      msg.content += v;
+      drawAiLog();
+    });
     actions = r.actions;
-    S.aiMsgs.push({ role: 'assistant', content: r.reply, actions, confirm: r.confirm.map((c) => ({ ...c, state: 'wait' })) });
+    // 최종 답변으로 덮어쓴다 — 단계 사이 줄바꿈·거절 안내 같은 서버 쪽 정리가 반영되게
+    if (!msg) S.aiMsgs.push(msg = { role: 'assistant', content: '' });
+    Object.assign(msg, { content: r.reply, actions, confirm: r.confirm.map((c) => ({ ...c, state: 'wait' })) });
   } catch (e) {
-    S.aiMsgs.push({ role: 'assistant', content: e.message, error: true });
+    // 반쯤 받은 답변은 오류 문구로 바꾼다 — 잘린 답이 이력에 남아 다음 지시에 섞이지 않게
+    if (msg) Object.assign(msg, { content: e.message, error: true });
+    else S.aiMsgs.push({ role: 'assistant', content: e.message, error: true });
   }
   S.aiBusy = false; saveAiMsgs();
   // 무언가 바꿨으면 화면 데이터를 서버 값으로 다시 맞춘다
