@@ -823,6 +823,13 @@ function runPal(i) {
 function renderHome(list) {
   const chat = homeChat();
   document.querySelector('main.home').classList.toggle('chatting', chat);
+  // 생성 중엔 보내기 버튼이 중단 버튼이 된다
+  const btn = document.querySelector('.h-send');
+  const stop = chat && S.aiBusy;
+  btn.textContent = stop ? '■' : '↑';
+  btn.classList.toggle('stop', stop);
+  btn.setAttribute('aria-label', stop ? '생성 중단' : '실행');
+  btn.title = stop ? '생성 중단' : '';
   document.getElementById('h-q').placeholder = chat ? 'AI에게 지시… Enter로 보내기 (esc 홈으로)' : '할 일 추가, 태스크 찾기, AI에게 지시… 입력하거나 / 로 명령어';
   document.getElementById('h-chat').innerHTML = chat ? `<div class="h-chat-h"><b>AI 지시</b>
       ${S.aiMsgs.length ? '<button class="btn-ghost" data-act="ai-clear">대화 지우기</button>' : ''}
@@ -1218,7 +1225,7 @@ function aiLog() {
     // 답변만 마크다운으로 그린다 — 내 메시지·오류 문구는 친 그대로
     const md = m.role === 'assistant' && !m.error;
     return `<div class="ai-msg ${m.role}${m.error ? ' err' : ''}${md ? ' md' : ''}">${md ? renderMd(m.content) : esc(m.content)}${acts.length ? `<div class="ai-acts">${acts.map((a) =>
-        `<span class="chip">${a.error ? '✕' : '✓'} ${AI_ACT[a.tool]}${a.input?.title ? ` · ${esc(a.input.title)}` : a.input?.id ? ` #${a.input.id}` : ''}</span>`).join('')}</div>` : ''}${confirm}</div>`;
+        `<span class="chip">${a.error ? '✕' : '✓'} ${AI_ACT[a.tool]}${a.input?.title ? ` · ${esc(a.input.title)}` : a.input?.id ? ` #${a.input.id}` : ''}</span>`).join('')}</div>` : ''}${confirm}${m.stopped ? '<div class="ai-stopped">중단됨</div>' : ''}</div>`;
   };
   // 답변 글자가 흘러들기 시작하면 «처리 중»은 그 말풍선이 대신한다
   return S.aiMsgs.map(bubble).join('') + (S.aiBusy && S.aiMsgs.at(-1)?.role === 'user' ? '<div class="ai-msg assistant busy">처리 중…</div>' : '');
@@ -1239,8 +1246,8 @@ function drawAiLog() {
 }
 
 /** /api/ai NDJSON 스트림을 읽는다. 글자 조각은 onText로, 마지막 {t:'done'} 결과를 돌려준다. */
-async function streamAi(messages, onText) {
-  const res = await fetch('/api/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages }) });
+async function streamAi(messages, onText, signal) {
+  const res = await fetch('/api/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages }), signal });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || '요청 실패'); // 첫 조각 전 실패는 일반 JSON 오류
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
   let buf = '';
@@ -1293,32 +1300,44 @@ function openAi() {
   if (log) log.scrollTop = log.scrollHeight;
 }
 
+let aiAbort = null; // 지금 도는 지시의 AbortController — 중단 버튼이 쓴다
+const stopAi = () => aiAbort?.abort();
+
 async function sendAi(text) {
   if (!text || S.aiBusy) return;
   S.aiMsgs.push({ role: 'user', content: text });
   S.aiBusy = true; openAi();
   let actions = [];
   let msg = null; // 첫 조각이 올 때 만드는 답변 말풍선
+  let stopped = false;
+  aiAbort = new AbortController();
   try {
-    // 서버는 무상태 — 실패 응답은 이력에서 빼고 보낸다(모델이 오류 문구를 자기 말로 착각하지 않게)
-    const history = S.aiMsgs.filter((m) => !m.error).map(({ role, content }) => ({ role, content }));
+    // 서버는 무상태 — 실패 응답은 이력에서 빼고 보낸다(모델이 오류 문구를 자기 말로 착각하지 않게).
+    // 글자 없이 중단된 말풍선도 뺀다 — 서버가 빈 content를 거부한다
+    const history = S.aiMsgs.filter((m) => !m.error && m.content.trim()).map(({ role, content }) => ({ role, content }));
     const r = await streamAi(history, (v) => {
       if (!msg) S.aiMsgs.push(msg = { role: 'assistant', content: '' });
       msg.content += v;
       drawAiLog();
-    });
+    }, aiAbort.signal);
     actions = r.actions;
     // 최종 답변으로 덮어쓴다 — 단계 사이 줄바꿈·거절 안내 같은 서버 쪽 정리가 반영되게
     if (!msg) S.aiMsgs.push(msg = { role: 'assistant', content: '' });
     Object.assign(msg, { content: r.reply, actions, confirm: r.confirm.map((c) => ({ ...c, state: 'wait' })) });
   } catch (e) {
+    if (e.name === 'AbortError') {
+      // 중단 — 받은 데까지는 사용자가 본 그대로 남기고 «중단됨» 표시만 붙인다
+      stopped = true;
+      if (msg) msg.stopped = true;
+      else S.aiMsgs.push({ role: 'assistant', content: '', stopped: true });
+    } else
     // 반쯤 받은 답변은 오류 문구로 바꾼다 — 잘린 답이 이력에 남아 다음 지시에 섞이지 않게
     if (msg) Object.assign(msg, { content: e.message, error: true });
     else S.aiMsgs.push({ role: 'assistant', content: e.message, error: true });
   }
-  S.aiBusy = false; saveAiMsgs();
-  // 무언가 바꿨으면 화면 데이터를 서버 값으로 다시 맞춘다
-  if (actions.some((a) => AI_ACT[a.tool] && !a.error)) await reload().catch(() => {});
+  S.aiBusy = false; aiAbort = null; saveAiMsgs();
+  // 무언가 바꿨으면 화면 데이터를 서버 값으로 다시 맞춘다. 중단은 어디까지 실행됐는지 모르니 항상 다시 읽는다.
+  if (stopped || actions.some((a) => AI_ACT[a.tool] && !a.error)) await reload().catch(() => {});
   if (S.ai) openAi();
 }
 
@@ -1793,7 +1812,12 @@ document.addEventListener('click', (e) => {
   const { act, id } = el.dataset;
 
   if (act === 'h-run') return runPal(Number(el.dataset.i));
-  if (act === 'h-send' && homeChat()) { const t = S.hq.trim(); if (t && !S.aiBusy) { setHq(''); sendAi(t); } return; }
+  if (act === 'h-send' && homeChat()) {
+    if (S.aiBusy) return stopAi();
+    const t = S.hq.trim();
+    if (t) { setHq(''); sendAi(t); }
+    return;
+  }
   if (act === 'h-send') return palItems.length ? runPal(S.hsel) : document.getElementById('h-q')?.focus();
   if (act === 'sugg') return toggleAct(el.dataset.key);
   if (act === 'advise') return requestAdvice();

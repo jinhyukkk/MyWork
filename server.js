@@ -71,17 +71,20 @@ export function createApp(db = openDb(process.env.MYWORK_DB_PATH), getAiClient =
     if (!valid) return res.status(400).json({ error: 'messages는 user로 끝나는 {role, content} 배열이어야 합니다' });
     // NDJSON 스트림 — {t:'text', v} 조각들 뒤에 {t:'done', reply, actions, confirm}.
     // 첫 조각 전에 실패하면 기존처럼 상태 코드 + JSON 오류, 그 뒤면 {t:'error'} 줄로 알린다.
-    // shortcut: 브라우저가 끊어도 지시는 끝까지 실행한다(도구 변경이 반쯤 멈추지 않게) — 중단 버튼이 생기면 AbortController로 바꾼다.
+    // 화면의 중단 버튼(fetch abort)이나 탭 닫기로 연결이 끊기면 AI 루프도 멈춘다
+    const ac = new AbortController();
+    res.on('close', () => { if (!res.writableEnded) ac.abort(); });
     const line = (o) => {
       if (res.destroyed) return;
       if (!res.headersSent) res.type('application/x-ndjson');
       res.write(JSON.stringify(o) + '\n');
     };
     try {
-      const out = await agent(msgs, (v) => line({ t: 'text', v }));
+      const out = await agent(msgs, (v) => line({ t: 'text', v }), ac.signal);
       line({ t: 'done', ...out });
       res.end();
     } catch (e) {
+      if (ac.signal.aborted) return; // 받을 사람이 없다
       if (!res.headersSent) return aiError(res, e);
       line({ t: 'error', error: e.message });
       res.end();

@@ -355,6 +355,7 @@
   .ai-msg.md blockquote { border-left:3px solid var(--line); padding-left:10px; color:var(--text-3); }
   .ai-msg.md hr { border:none; border-top:1px solid var(--line); margin:12px 0; }
   .ai-msg.md a { color:var(--accent); }
+  .ai-stopped { margin-top:6px; font:500 11px var(--mono); color:var(--text-4); }
   .ai-msg.busy { color:var(--text-3); }
   .ai-acts { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; white-space:normal; }
   .btn-save[disabled] { opacity:.5; cursor:default; }
@@ -507,6 +508,7 @@
   .kbd { font:500 11px var(--mono); color:var(--icon); border:1px solid var(--line); border-radius:4px; padding:2px 6px; }
   .h-send { all:unset; cursor:pointer; width:34px; height:34px; border-radius:9px; background:var(--ink); color:var(--on-ink); font-size:15px; text-align:center; line-height:34px; }
   .h-send:hover { background:var(--ink-h); }
+  .h-send.stop { font-size:11px; }
   #h-palette:empty { display:none; }
   #h-palette { position:absolute; left:0; right:0; top:66px; background:var(--surface); border-radius:var(--radius); box-shadow:var(--elev-lg); overflow:hidden; }
   .pal-list { padding:8px; display:flex; flex-direction:column; max-height:min(420px, 56vh); overflow:auto; }

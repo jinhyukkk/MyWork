@@ -45,9 +45,10 @@ export function createAgent(db, getClient = defaultClient) {
   /**
    * @param history [{ role: 'user'|'assistant', content: string }] — 마지막이 이번 지시
    * @param onText  답변 글자 조각이 생성되는 대로 불린다(화면 스트리밍용)
+   * @param signal  중단 신호 — 생성 중이면 스트림을 끊고, 도구는 다음 단계로 넘어가기 전에만 멈춘다(실행 중인 도구는 끝까지)
    * @returns {{ reply: string, actions: { tool, input, error }[], confirm: { kind, id, title, url }[] }}
    */
-  return async function run(history, onText = () => {}) {
+  return async function run(history, onText = () => {}, signal) {
     client ??= getClient();
     // 이전 턴은 텍스트만 다시 보낸다(thinking 블록을 재전송하지 않으므로 이력 편집 검사와 무관)
     const messages = history.slice(-HISTORY).map(({ role, content }) => ({ role, content }));
@@ -56,6 +57,7 @@ export function createAgent(db, getClient = defaultClient) {
     const texts = []; // 단계마다 나온 답변 — 스트리밍으로 보인 글과 최종 reply가 같도록 전부 모은다
 
     for (let step = 0; step < MAX_STEPS; step++) {
+      signal?.throwIfAborted();
       const stream = client.beta.messages.stream({
         model: MODEL,
         max_tokens: 16000,
@@ -66,7 +68,7 @@ export function createAgent(db, getClient = defaultClient) {
         system: system(),
         tools,
         messages,
-      });
+      }, { signal });
       for await (const ev of stream) {
         if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') onText(ev.delta.text);
       }

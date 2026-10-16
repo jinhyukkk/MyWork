@@ -670,6 +670,37 @@ test('AI 지시 — 삭제 도구는 실행하지 않고 확인 대기로 돌려
   assert.ok(!store.listTasks(db).some((x) => x.id === victim.id));
 });
 
+test('AI 지시 — 브라우저가 중단하면 서버 AI 루프도 멈춘다', async (t) => {
+  const db = openDb(':memory:');
+  let gotSignal;
+  let aborted;
+  const stopped = new Promise((r) => { aborted = r; });
+  // 첫 조각을 보낸 뒤 중단 신호가 올 때까지 기다리는 스트림
+  const fake = { beta: { messages: { stream: (_req, opts) => {
+    gotSignal = opts?.signal;
+    return {
+      async *[Symbol.asyncIterator]() {
+        yield { type: 'content_block_delta', delta: { type: 'text_delta', text: '생각 중' } };
+        await new Promise((_, rej) => gotSignal.addEventListener('abort', () => { aborted(); rej(new DOMException('aborted', 'AbortError')); }));
+      },
+      finalMessage: async () => { throw new Error('호출되면 안 됨'); },
+    };
+  } } } };
+  const srv = createApp(db, () => fake).listen(0);
+  t.after(() => srv.close());
+
+  const ac = new AbortController();
+  const r = await fetch(`http://localhost:${srv.address().port}/api/ai`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ac.signal,
+    body: JSON.stringify({ messages: [{ role: 'user', content: '길게 해줘' }] }),
+  });
+  const reader = r.body.getReader();
+  await reader.read(); // 첫 조각까지 받고
+  ac.abort();          // 중단 버튼
+  await stopped;
+  assert.equal(gotSignal.aborted, true, 'SDK 스트림에 넘긴 signal이 끊긴다');
+});
+
 test('홈 판단 — 데이터를 보내고, 실행할 수 없는 행동은 걸러서 돌려준다 (가짜 Claude)', async (t) => {
   const db = openDb(':memory:');
   const doneSet = new Set(store.listOptions(db, 'status').filter((o) => o.done).map((o) => o.name));
