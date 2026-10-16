@@ -647,3 +647,36 @@ test('AI 지시 — 삭제 도구는 실행하지 않고 확인 대기로 돌려
   assert.equal((await fetch(base + out.confirm[0].url, { method: 'DELETE' })).status, 204);
   assert.ok(!store.listTasks(db).some((x) => x.id === victim.id));
 });
+
+test('홈 판단 — 데이터를 보내고, 실행할 수 없는 행동은 걸러서 돌려준다 (가짜 Claude)', async (t) => {
+  const db = openDb(':memory:');
+  const doneSet = new Set(store.listOptions(db, 'status').filter((o) => o.done).map((o) => o.name));
+  const [a, b] = store.listTasks(db).filter((x) => !doneSet.has(x.status)); // 오래된 완료 건은 데이터에서 빠진다
+  const sent = [];
+  const out = {
+    summary: '진행 중인 일을 먼저 밀어요.',
+    focus: [{ task_id: a.id, reason: '진행 중' }, { task_id: 99999, reason: '없는 태스크' }],
+    actions: [
+      { task_id: a.id, kind: 'todo', value: '자료 리허설', title: '리허설 항목 추가', why: '교육 임박' },
+      { task_id: b.id, kind: 'status', value: '없는상태', title: 'x', why: 'x' },
+      { task_id: b.id, kind: 'status', value: b.status, title: '이미 그 상태', why: 'x' },
+      { task_id: b.id, kind: 'due', value: '2026-13', title: '잘못된 날짜', why: 'x' },
+      { task_id: b.id, kind: 'due', value: '2030-01-02', title: '마감 지정', why: 'x' },
+    ],
+  };
+  const fake = { beta: { messages: { create: async (req) => { sent.push(req); return { stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(out) }] }; } } } };
+  const srv = createApp(db, () => fake).listen(0);
+  t.after(() => srv.close());
+
+  const r = await fetch(`http://localhost:${srv.address().port}/api/advise`, { method: 'POST' });
+  assert.equal(r.status, 200);
+  const body = await r.json();
+  assert.deepEqual(body.focus.map((f) => f.task_id), [a.id]);
+  assert.deepEqual(body.actions.map((x) => x.title), ['리허설 항목 추가', '마감 지정']);
+  assert.equal(body.actions[0].key, `${a.id}:todo:자료 리허설`);
+
+  // 요청 — 구조화 출력 스키마 + 데이터는 user 메시지(시스템 프롬프트는 고정이라 캐시가 맞는다)
+  assert.equal(sent[0].output_config.format.type, 'json_schema');
+  const data = JSON.parse(sent[0].messages[0].content);
+  assert.ok(data.tasks.some((x) => x.id === a.id) && Array.isArray(data.statuses));
+});

@@ -2,6 +2,7 @@
 import express from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { createAgent } from './ai.js';
+import { createAdvisor } from './advise.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDb } from './db.js';
@@ -71,17 +72,32 @@ export function createApp(db = openDb(process.env.MYWORK_DB_PATH), getAiClient =
     try {
       res.json(await agent(msgs));
     } catch (e) {
-      if (e instanceof Anthropic.AuthenticationError) return res.status(503).json({ error: 'Anthropic API 키가 올바르지 않습니다 (ANTHROPIC_API_KEY)' });
-      if (e instanceof Anthropic.RateLimitError) return res.status(429).json({ error: '요청이 많습니다. 잠시 후 다시 시도하세요' });
-      if (e instanceof Anthropic.APIError) return res.status(502).json({ error: `AI 호출 실패 (${e.status ?? '연결'}): ${e.message}` });
-      // 키가 아예 없으면 SDK가 일반 Error를 던진다
-      res.status(503).json({ error: process.env.ANTHROPIC_API_KEY
-        ? `AI를 쓸 수 없습니다: ${e.message}`
-        : '.env 파일에 ANTHROPIC_API_KEY를 넣고 서버를 다시 시작하세요 (.env.example 참고)' });
+      aiError(res, e);
+    }
+  });
+
+  // 홈 «지금 집중할 일 · 다음 행동». 판단만 돌려주고 실행은 프론트가 사용자 승인 후 기존 REST로 한다.
+  const advise = createAdvisor(db, getAiClient);
+  app.post('/api/advise', async (_req, res) => {
+    try {
+      res.json(await advise());
+    } catch (e) {
+      aiError(res, e);
     }
   });
 
   return app;
+}
+
+/** AI 호출 실패를 HTTP 응답으로. 지시창과 홈 판단이 같은 안내를 쓴다. */
+function aiError(res, e) {
+  if (e instanceof Anthropic.AuthenticationError) return res.status(503).json({ error: 'Anthropic API 키가 올바르지 않습니다 (ANTHROPIC_API_KEY)' });
+  if (e instanceof Anthropic.RateLimitError) return res.status(429).json({ error: '요청이 많습니다. 잠시 후 다시 시도하세요' });
+  if (e instanceof Anthropic.APIError) return res.status(502).json({ error: `AI 호출 실패 (${e.status ?? '연결'}): ${e.message}` });
+  // 키가 아예 없으면 SDK가 일반 Error를 던진다. 응답 JSON이 깨진 경우(SyntaxError)도 여기로 온다.
+  res.status(503).json({ error: process.env.ANTHROPIC_API_KEY
+    ? `AI를 쓸 수 없습니다: ${e.message}`
+    : '.env 파일에 ANTHROPIC_API_KEY를 넣고 서버를 다시 시작하세요 (.env.example 참고)' });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

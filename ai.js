@@ -16,7 +16,7 @@ const system = () => `당신은 개인 업무 관리 앱 MyWork의 비서다. �
 
 // 워크스페이스에 묶이지 않은(조직 단위) 키는 매 요청에 워크스페이스 id 헤더가 필요하다.
 // SDK는 이 변수를 페더레이션·프로필 인증일 때만 읽으므로 API 키 경로에선 직접 붙인다.
-const defaultClient = () => {
+export const defaultClient = () => {
   const ws = process.env.ANTHROPIC_WORKSPACE_ID?.trim();
   return new Anthropic(ws ? { defaultHeaders: { 'anthropic-workspace-id': ws } } : {});
 };

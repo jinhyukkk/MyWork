@@ -2,7 +2,7 @@
 import { checklist, checklistTotals } from './progress.js';
 import { groupTasks, nest } from './listgroup.js';
 import { parseQuick } from './quickparse.js';
-import { suggest } from './suggest.js';
+import { renderMd } from './mdlite.js';
 
 const DAY = 86400000;
 // 프로젝트 뷰(/project)는 여기 없다 — 메뉴가 아니라 목록·보드의 ⑂ 배지와 모달에서 들어간다.
@@ -19,7 +19,6 @@ const ICON = {
   eyeOff: svg('<path d="M3 3l18 18"/><path d="M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-2.6 3.3M6.6 6.6C4.3 8.1 3 12 3 12s4 6 9 6a8.6 8.6 0 0 0 4.4-1.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>'),
   archive: svg('<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
-  sparkles: svg('<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>'),
 };
 const KIND_LABEL = { status: '진행상황', category: '업무분류' };
 const META_KEY = { status: 'statuses', category: 'categories' };
@@ -152,7 +151,8 @@ const S = {
   aiBusy: false,
   aiMsgs: loadAiMsgs(), // [{ role, content, actions? }] — 뷰 전환(페이지 이동)에도 대화가 이어지게 세션에 둔다
   hq: '', hsel: 0,      // 홈 입력창 값·팔레트 선택 행
-  sugg: [],             // 홈 제안 — 승인한 항목은 조건이 사라져도 남아 다시 눌러 취소할 수 있다
+  advice: loadAdvice(), // 홈 AI 판단 { at, summary, focus[], actions[] } — 하루 한 번 자동
+  adviceBusy: false, adviceErr: '',
 };
 
 // ── API ──────────────────────────────────────────────
@@ -683,40 +683,69 @@ function viewNotes(list) {
 
 // ── 홈 ───────────────────────────────────────────────
 // 디자인 핸드오프 «Mywork 홈»을 MyWork 데이터로 옮겼다. 회의·캘린더 연동이 없어
-// 다음 회의 → 가장 급한 마감, 오늘 일정(시각) → 이번 주 마감(날짜), 제안 → suggest.js 규칙으로 바꿨다.
+// 다음 회의·제안 → LLM이 등록된 데이터로 판단한 «지금 집중할 일»·«다음 행동», 오늘 일정(시각) → 이번 주 마감(날짜).
 // 입력창은 home.html의 정적 DOM이고, 여기서는 그 주변 영역만 다시 그린다.
 const WD = '일월화수목금토';
 const WD_EN = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+// 판단 중 표시 — 글자 대신 모션. 스크린리더에는 role=status로 «판단 중»을 알린다.
+const DOTS = '<span class="dots" role="status" aria-label="판단 중"><i></i><i></i><i></i></span>';
+const skel = (n) => `<div class="skel" aria-hidden="true">${'<i></i>'.repeat(n)}</div>`;
+const ACT_TAG = { todo: 'TODO', status: 'STATUS', due: 'DUE' };
 const CMDS = [['/추가', '태스크 만들기 — 날짜·#분류 해석'], ['/메모', '메모 남기기'], ['/AI', 'AI에게 지시']];
 let palItems = []; // 지금 그려진 팔레트 행 — 키보드·클릭이 인덱스로 실행한다
 
 const homeStatus = (msg) => { const el = document.getElementById('h-status'); if (el) el.textContent = msg; };
 
-/** 제안을 새 데이터로 맞춘다. 승인한 항목은 이미 실행돼 조건이 사라져도 자리를 지킨다 — 다시 눌러 취소할 수 있어야 한다. */
-function syncSugg(list) {
-  const fresh = suggest(list, {
-    today: TODAY, isDone, isWaiting, doneStatus: firstDone(),
-    openStatus: S.statuses.find((s) => !isDone(s) && !isWaiting(s)),
-  });
-  // 실행 중(busy)인 항목도 그대로 둔다 — 새 객체로 바꾸면 toggleSugg가 고친 승인 표시가 화면에서 사라진다
-  const kept = S.sugg.map((s) => (s.approved || s.busy ? s : fresh.find((f) => f.key === s.key))).filter(Boolean);
-  S.sugg = [...kept, ...fresh.filter((f) => !kept.some((k) => k.key === f.key))];
+// ── AI 판단 ── 등록된 태스크·메모를 LLM이 읽고 «지금 집중할 일»과 «다음 행동»을 고른다(advise.js).
+// 판단은 비싸고 느려서 화면을 열 때마다 부르지 않는다. 하루 한 번 자동, 그 뒤엔 «다시 판단»으로만.
+// 승인 기록(되돌릴 값)까지 함께 저장해 새로고침해도 «다시 눌러 취소»가 된다.
+function loadAdvice() { try { return JSON.parse(localStorage.getItem('mywork.advice')); } catch { return null; } }
+function saveAdvice() { try { localStorage.setItem('mywork.advice', JSON.stringify(S.advice)); } catch { /* 저장 실패는 새로고침 때 다시 판단할 뿐 */ } }
+const adviceStale = () => !S.advice || iso(new Date(S.advice.at)) !== TODAY;
+const hm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+async function requestAdvice() {
+  if (S.adviceBusy) return;
+  S.adviceBusy = true; S.adviceErr = ''; render();
+  try {
+    S.advice = await api('/api/advise', { method: 'POST' });
+    saveAdvice();
+  } catch (e) {
+    S.adviceErr = e.message;
+  }
+  S.adviceBusy = false; render();
 }
 
-/** 승인 = PATCH 실행, 다시 누르면 이전 값으로 되돌린다. 자동 실행은 없다. */
-async function toggleSugg(key) {
-  const s = S.sugg.find((x) => x.key === key);
-  if (!s || s.busy) return;
-  const undo = !!s.approved;
-  s.busy = true; render();
+/**
+ * 승인 = 행동 하나 실행(체크리스트 추가·상태·마감 — 전부 기존 REST), 다시 누르면 되돌린다.
+ * 되돌릴 값은 실행 직전의 현재 값으로 잡는다 — 판단 이후 사용자가 바꾼 값을 덮어쓰지 않게.
+ */
+async function toggleAct(key) {
+  const a = S.advice?.actions.find((x) => x.key === key);
+  const t = a && taskById(a.task_id);
+  if (!a || a.busy) return;
+  a.busy = true; render();
   try {
-    await Promise.all(s.changes.map((c) => send(`/api/tasks/${c.id}`, 'PATCH', undo ? c.undo : c.patch)));
-    s.approved = !undo;
-    homeStatus(`${undo ? '취소했어요' : '실행했어요'} — ${s.title}`);
+    if (a.done) {
+      if (a.kind === 'todo') await api(`/api/subtasks/${a.done.subId}`, { method: 'DELETE' });
+      else await send(`/api/tasks/${a.task_id}`, 'PATCH', { [a.kind]: a.done.prev });
+      a.done = null;
+      homeStatus(`취소했어요 — ${a.title}`);
+    } else {
+      if (!t) throw new Error('태스크가 없습니다(삭제·보관됨). 다시 판단해 주세요');
+      if (a.kind === 'todo') a.done = { subId: (await send(`/api/tasks/${a.task_id}/subtasks`, 'POST', { title: a.value })).id };
+      else {
+        const prev = t[a.kind] ?? null;
+        await send(`/api/tasks/${a.task_id}`, 'PATCH', { [a.kind]: a.kind === 'due' ? a.value || null : a.value });
+        a.done = { prev };
+      }
+      homeStatus(`실행했어요 — ${a.title}`);
+    }
+    saveAdvice();
   } catch (e) {
     homeStatus(e.message);
   }
-  s.busy = false;
+  a.busy = false;
   await reload().catch(() => {});
 }
 
@@ -726,7 +755,7 @@ async function homeAdd(text) {
 async function homeNote(body) {
   try { await send('/api/notes', 'POST', { title: '', body, category: null }); homeStatus('메모를 남겼어요 — 메모 뷰에서 볼 수 있어요'); await reload(); } catch (e) { homeStatus(e.message); }
 }
-function homeAi(text) { homeStatus(`AI에게 요청 — “${text}”`); sendAi(text); }
+function homeAi(text) { sendAi(text); }
 
 /** 팔레트 그룹 [라벨, 행[]]. 요청 행은 항상 맨 앞. «/명령 내용»이면 그 명령의 실행 행 하나만. */
 function palGroups(q) {
@@ -738,7 +767,7 @@ function palGroups(q) {
       meta: [p.due && `${md(p.due)} (${WD[parseD(p.due).getDay()]})`, p.category].filter(Boolean).join(' · ') };
   };
   const noteRow = (text) => ({ title: `“${text}” 메모로 남기기`, meta: '메모', run: () => homeNote(text) });
-  const aiRow = (text) => ({ title: `“${text}” AI에게 요청`, meta: 'AI 지시창으로', run: () => homeAi(text) });
+  const aiRow = (text) => ({ title: `“${text}” AI에게 요청`, meta: 'AI 채팅으로', run: () => homeAi(text) });
   if (t.startsWith('/')) {
     const [cmd, ...rest] = t.split(/\s+/);
     const arg = rest.join(' ');
@@ -750,15 +779,15 @@ function palGroups(q) {
   const lc = t.toLowerCase();
   const tasks = S.tasks.filter((x) => !isDone(x.status) && x.title.toLowerCase().includes(lc)).sort(byDue).slice(0, 5)
     .map((x) => ({ title: x.title, meta: dueMeta(x).text, run: () => openTask(x.id) }));
-  const sugg = S.sugg.filter((s) => s.title.toLowerCase().includes(lc))
-    .map((s) => ({ tag: s.src, title: s.title, hint: s.approved ? '승인됨' : '', dim: s.approved, run: () => toggleSugg(s.key) }));
+  const sugg = (S.advice?.actions ?? []).filter((a) => a.title.toLowerCase().includes(lc))
+    .map((a) => ({ tag: ACT_TAG[a.kind], title: a.title, hint: a.done ? '승인됨' : '', dim: !!a.done, run: () => toggleAct(a.key) }));
   return [['', [aiRow(t), addRow(t)].filter(Boolean)], ['태스크', tasks], ['제안 · ↵ 로 승인', sugg]];
 }
 
 function drawPalette() {
   const box = document.getElementById('h-palette');
   if (!box) return;
-  const groups = palGroups(S.hq).filter(([, rows]) => rows.length);
+  const groups = (homeChat() ? [] : palGroups(S.hq)).filter(([, rows]) => rows.length);
   palItems = groups.flatMap(([, rows]) => rows);
   if (!palItems.length) { box.innerHTML = ''; return; }
   S.hsel = Math.min(S.hsel, palItems.length - 1);
@@ -792,52 +821,64 @@ function runPal(i) {
 }
 
 function renderHome(list) {
-  syncSugg(list);
+  const chat = homeChat();
+  document.querySelector('main.home').classList.toggle('chatting', chat);
+  document.getElementById('h-q').placeholder = chat ? 'AI에게 지시… Enter로 보내기 (esc 홈으로)' : '할 일 추가, 태스크 찾기, AI에게 지시… 입력하거나 / 로 명령어';
+  document.getElementById('h-chat').innerHTML = chat ? `<div class="h-chat-h"><b>AI 지시</b>
+      ${S.aiMsgs.length ? '<button class="btn-ghost" data-act="ai-clear">대화 지우기</button>' : ''}
+      <button class="btn-ghost" data-act="ai-close">← 홈으로</button></div>
+    <div class="ai-log" id="ai-log" aria-live="polite">${S.aiMsgs.length || S.aiBusy ? aiLog() : AI_HINT}</div>` : '';
   const open = list.filter((t) => !isDone(t.status));
   const mine = open.filter((t) => !isWaiting(t.status));
   const late = mine.filter((t) => t.due && t.due < TODAY).sort(byDue);
   const dueToday = mine.filter((t) => t.due === TODAY);
   const week = mine.filter((t) => t.due && t.due > TODAY && t.due <= shift(today, 7)).sort(byDue);
   const waiting = open.length - mine.length;
-  const focus = late[0] ?? dueToday[0] ?? week[0] ?? null;
+  const adv = S.advice;
+  // 판단 이후 지워지거나 보관된 태스크는 화면에서 뺀다
+  const focus = (adv?.focus ?? []).map((f) => ({ ...f, t: taskById(f.task_id) })).filter((f) => f.t);
+  const hot = focus[0]?.t ?? null;
 
-  const now = new Date();
-  const hm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   const line1 = late.length ? `지연 ${late.length}건${dueToday.length ? `, 오늘 마감 ${dueToday.length}건` : ''}이 있어요.`
     : dueToday.length ? `오늘 마감 ${dueToday.length}건이 있어요.`
     : week.length ? `이번 주 마감 ${week.length}건이 있어요.` : '급한 마감이 없어요.';
-  const pend = S.sugg.filter((s) => !s.approved).length;
-  const line2 = pend ? `제안 ${pend}가지를 정리해 뒀어요.` : `미완료 ${open.length}건${waiting ? ` · 대기 ${waiting}건` : ''}`;
-  document.getElementById('h-head').innerHTML = `<div class="h-date">${now.getMonth() + 1}월 ${now.getDate()}일 ${WD[now.getDay()]} · ${hm}</div>
-    <h1>${line1}<br><span>${line2}</span></h1>`;
+  const reading = S.adviceBusy && !adv;
+  const line2 = reading ? 'AI가 등록된 업무를 읽고 있어요'
+    : adv?.summary || `미완료 ${open.length}건${waiting ? ` · 대기 ${waiting}건` : ''}`;
+  document.getElementById('h-head').innerHTML = `<h1>${esc(line1)}<br><span>${esc(line2)}${reading ? DOTS : ''}</span></h1>`;
 
-  // 왼쪽 카드 — 가장 급한 일과 그 일의 «준비할 것»(체크리스트·하위·연결 메모)
-  let focusCard = '<div class="h-card"><div class="h-card-h">가장 급한 일</div><div class="h-empty">7일 안에 마감되는 일이 없어요.</div></div>';
-  if (focus) {
-    const dm = dueMeta(focus);
-    const refs = [
-      ...(focus.subtasks ?? []).map((s) => ({ tag: 'CHK', title: s.title, done: s.done, act: `data-act="open" data-id="${focus.id}"` })),
-      ...childrenOf(focus.id).map((k) => ({ tag: 'SUB', title: k.title, done: isDone(k.status), act: `data-act="open" data-id="${k.id}"` })),
-      ...S.notes.filter((n) => n.task_id === focus.id).map((n) => ({ tag: 'NOTE', title: n.title || n.body.slice(0, 60), act: `data-act="note-open" data-id="${n.id}"` })),
-    ].slice(0, 5);
-    focusCard = `<div class="h-card">
-      <div class="h-card-h">가장 급한 일<span class="badge-g ${dm.diff < 0 ? 'late' : ''}">${dm.diff < 0 ? `${-dm.diff}일 지연` : dm.diff === 0 ? '오늘' : `D-${dm.diff}`}</span></div>
-      <div class="h-focus" data-act="open" data-id="${focus.id}"><b>${esc(focus.title)}</b>
-        <span>${md(focus.due)} (${WD[parseD(focus.due).getDay()]}) · ${esc(focus.category)} · ${esc(focus.status)}</span></div>
-      <div class="h-refs"><div class="pal-g">준비할 것</div>
-        ${refs.map((r) => `<div class="h-ref ${r.done ? 'done' : ''}" ${r.act}><span class="tag">${r.tag}</span><span class="pt">${esc(r.title)}</span></div>`).join('')
-          || '<div class="h-empty">체크리스트·하위 태스크·연결 메모가 없어요.</div>'}
-      </div></div>`;
-  }
-  const acts = `<div class="h-card h-acts">
-    <div class="h-card-h" style="padding-bottom:8px">제안하는 다음 행동<small>승인해야 실행돼요</small></div>
-    ${S.sugg.map((s) => `<div class="h-act"><span class="tag">${s.src}</span>
-      <div class="body"><b>${esc(s.title)}</b><span>${esc(s.why)}</span></div>
-      <button class="btn-ok ${s.approved ? 'on' : ''}" data-act="sugg" data-key="${esc(s.key)}" ${s.busy ? 'disabled' : ''}
-        title="${s.approved ? '다시 누르면 취소' : '누르면 실행'}">${s.approved ? '승인됨 ✓' : '승인'}</button></div>`).join('')
-      || '<div class="h-act h-empty">지금은 제안할 게 없어요.</div>'}
+  // 판단 상태 줄 — 언제 판단했는지, 다시 판단 버튼, 실패 사유
+  const stamp = S.adviceBusy ? `<small>${DOTS}</small>`
+    : `<small>${adv ? `${iso(new Date(adv.at)) === TODAY ? '' : `${md(iso(new Date(adv.at)))} `}${hm(new Date(adv.at))} 판단 · ` : ''}<button class="h-link" data-act="advise">${adv ? '다시 판단' : '판단하기'}</button></small>`;
+  const err = S.adviceErr ? `<div class="h-empty err">${esc(S.adviceErr)}</div>` : '';
+
+  // 왼쪽 — 지금 집중할 일(LLM). 근거 문장이 이 카드의 핵심이다.
+  const focusCard = `<div class="h-card">
+    <div class="h-card-h">지금 집중할 일${stamp}</div>${err}
+    ${focus.map((f, i) => {
+      const dm = dueMeta(f.t);
+      return `<div class="h-focus ${i ? 'sub' : ''}" data-act="open" data-id="${f.t.id}">
+        <b>${esc(f.t.title)}</b>
+        <span>${esc(f.t.status)}${f.t.due ? ` · <em style="color:${dm.color}">${dm.text}</em>` : ''}</span>
+        <p>${esc(f.reason)}</p></div>`;
+    }).join('') || (S.adviceBusy ? skel(3) : err ? '' : '<div class="h-empty">아직 판단한 내용이 없어요.</div>')}
   </div>`;
-  document.getElementById('h-cards').innerHTML = focusCard + acts;
+
+  // 오른쪽 — 다음 행동(LLM). 승인해야 실행된다.
+  const acts = (adv?.actions ?? []).map((a) => ({ ...a, t: taskById(a.task_id) }));
+  const actCard = `<div class="h-card h-acts">
+    <div class="h-card-h" style="padding-bottom:8px">제안하는 다음 행동<small>승인해야 실행돼요</small></div>
+    ${acts.map((a) => `<div class="h-act"><span class="tag">${ACT_TAG[a.kind]}</span>
+      <div class="body"><b>${esc(a.title)}</b><span>${a.t ? `«${esc(a.t.title)}» · ` : ''}${esc(a.why)}</span></div>
+      <button class="btn-ok ${a.done ? 'on' : ''}" data-act="sugg" data-key="${esc(a.key)}" ${a.busy || (!a.t && !a.done) ? 'disabled' : ''}
+        title="${a.done ? '다시 누르면 취소' : '누르면 실행'}">${a.done ? '승인됨 ✓' : '승인'}</button></div>`).join('')
+      || (S.adviceBusy ? `<div class="h-act">${skel(2)}</div><div class="h-act">${skel(2)}</div>`
+        : `<div class="h-act h-empty">${adv ? '지금은 제안할 게 없어요.' : '판단하면 여기에 다음 행동이 나와요.'}</div>`)}
+  </div>`;
+  const cards = document.getElementById('h-cards');
+  cards.innerHTML = focusCard + actCard;
+  // 다시 판단 중에는 이전 판단을 흐리게 — 곧 바뀐다는 신호
+  cards.classList.toggle('busy', S.adviceBusy && !!adv);
 
   // 오른쪽 — 이번 주 마감. 지연 칸은 지연이 있을 때만 맨 위에.
   const days = [
@@ -849,7 +890,7 @@ function renderHome(list) {
     }),
   ];
   const blk = (t, cls) => {
-    if (t === focus) return `<div class="blk hot" data-act="open" data-id="${t.id}">${esc(t.title)}<small>${esc(t.category)} · 가장 급한 일</small></div>`;
+    if (t === hot) return `<div class="blk hot" data-act="open" data-id="${t.id}">${esc(t.title)}<small>${esc(t.category)} · 지금 집중할 일</small></div>`;
     const c = isDone(t.status) ? 'done' : isWaiting(t.status) ? 'wait' : cls === 'late' ? 'late' : '';
     return `<div class="blk ${c}" data-act="open" data-id="${t.id}" title="${esc(t.title)}">${esc(t.title)}</div>`;
   };
@@ -1055,7 +1096,6 @@ function viewTaskNotes(m) {
 }
 
 function viewModal() {
-  if (S.ai) return viewAi();
   if (S.settings) return viewSettings();
   if (S.archive) return viewArchive();
   const m = S.modal;
@@ -1163,7 +1203,7 @@ const AI_ACT = {
   create_note: '메모 생성', update_note: '메모 수정', delete_note: '메모 삭제',
 };
 
-function viewAi() {
+function aiLog() {
   const bubble = (m, mi) => {
     const acts = (m.actions ?? []).filter((a) => AI_ACT[a.tool]);
     const wait = (m.confirm ?? []).filter((c) => c.state === 'wait').length;
@@ -1175,23 +1215,16 @@ function viewAi() {
           : `<span class="ai-c-st ${c.state}">${AI_DEL_STATE[c.state]}${c.error ? ` — ${esc(c.error)}` : ''}</span>`}
       </div>`).join('')}
       ${wait > 1 ? `<button class="btn-del" data-act="ai-del" data-mi="${mi}" data-ci="all">${wait}건 모두 삭제</button>` : ''}</div>` : '';
-    return `<div class="ai-msg ${m.role}${m.error ? ' err' : ''}">${esc(m.content)}${acts.length ? `<div class="ai-acts">${acts.map((a) =>
+    // 답변만 마크다운으로 그린다 — 내 메시지·오류 문구는 친 그대로
+    const md = m.role === 'assistant' && !m.error;
+    return `<div class="ai-msg ${m.role}${m.error ? ' err' : ''}${md ? ' md' : ''}">${md ? renderMd(m.content) : esc(m.content)}${acts.length ? `<div class="ai-acts">${acts.map((a) =>
         `<span class="chip">${a.error ? '✕' : '✓'} ${AI_ACT[a.tool]}${a.input?.title ? ` · ${esc(a.input.title)}` : a.input?.id ? ` #${a.input.id}` : ''}</span>`).join('')}</div>` : ''}${confirm}</div>`;
   };
-  return `<div class="backdrop" data-act="ai-close-bd"><div class="modal ai-modal" role="dialog" aria-label="AI 지시">
-    <div class="mh"><div class="t">AI 지시</div><div style="flex:1"></div>
-      ${S.aiMsgs.length ? '<button class="btn-ghost" data-act="ai-clear">대화 지우기</button>' : ''}
-      <button class="x-btn" data-act="ai-close" aria-label="닫기">×</button></div>
-    <div class="mb ai-log" id="ai-log" aria-live="polite">
-      ${S.aiMsgs.length ? S.aiMsgs.map(bubble).join('') : `<div class="ai-hint">예) «내일까지 인사시스템 배포 점검 태스크 만들어줘» · «오늘 뭐 해야 해?» · «지연된 것 전부 다음 주 월요일로 미뤄줘» · «이번 주 회고 요약해줘»</div>`}
-      ${S.aiBusy ? '<div class="ai-msg assistant busy">처리 중…</div>' : ''}
-    </div>
-    <div class="mf">
-      <textarea id="ai-input" rows="2" placeholder="지시를 입력하고 Enter (줄바꿈은 Shift+Enter)" ${S.aiBusy ? 'disabled' : ''}></textarea>
-      <button class="btn-save" data-act="ai-send" ${S.aiBusy ? 'disabled' : ''}>보내기</button>
-    </div>
-  </div></div>`;
+  return S.aiMsgs.map(bubble).join('') + (S.aiBusy ? '<div class="ai-msg assistant busy">처리 중…</div>' : '');
 }
+const AI_HINT = `<div class="ai-hint">예) «내일까지 인사시스템 배포 점검 태스크 만들어줘» · «오늘 뭐 해야 해?» · «지연된 것 전부 다음 주 월요일로 미뤄줘» · «이번 주 회고 요약해줘»</div>`;
+// AI 채팅은 홈에만 있다 — 메인 화면이 채팅 화면으로 바뀌고 입력은 홈 입력창(h-q)이 맡는다
+const homeChat = () => S.ai && S.view === 'home';
 
 const AI_DEL_STATE = { done: '삭제됨', cancel: '취소함', fail: '실패' };
 
@@ -1216,13 +1249,14 @@ async function resolveAiDelete(mi, ci, ok) {
 }
 
 function openAi() {
+  if (S.view !== 'home') return;
   S.modal = S.archive = S.settings = null; S.error = '';
-  S.ai = true; S.focusId = 'ai-input'; render();
+  S.ai = true; S.focusId = 'h-q'; render();
   const log = document.getElementById('ai-log');
   if (log) log.scrollTop = log.scrollHeight;
 }
 
-async function sendAi(text = document.getElementById('ai-input')?.value.trim()) {
+async function sendAi(text) {
   if (!text || S.aiBusy) return;
   S.aiMsgs.push({ role: 'user', content: text });
   S.aiBusy = true; openAi();
@@ -1713,8 +1747,10 @@ document.addEventListener('click', (e) => {
   const { act, id } = el.dataset;
 
   if (act === 'h-run') return runPal(Number(el.dataset.i));
+  if (act === 'h-send' && homeChat()) { const t = S.hq.trim(); if (t && !S.aiBusy) { setHq(''); sendAi(t); } return; }
   if (act === 'h-send') return palItems.length ? runPal(S.hsel) : document.getElementById('h-q')?.focus();
-  if (act === 'sugg') return toggleSugg(el.dataset.key);
+  if (act === 'sugg') return toggleAct(el.dataset.key);
+  if (act === 'advise') return requestAdvice();
   if (act === 'cat') { S.fCategory = S.fCategory === el.dataset.cat ? 'all' : el.dataset.cat; return render(); }
   if (act === 'list-group') {
     S.listGroup = el.dataset.mode;
@@ -1791,13 +1827,12 @@ document.addEventListener('click', (e) => {
   if (act === 'close-set' || (act === 'close-set-bd' && e.target === el)) { S.settings = null; S.optColor = null; S.error = ''; return render(); }
   if (act === 'set-kind') { S.settings = el.dataset.kind; S.optColor = null; S.error = ''; return render(); }
   if (act === 'opt-add') return addOption();
-  if (act === 'ai-send') return sendAi();
   if (act === 'ai-del' || act === 'ai-keep') {
     const ci = el.dataset.ci === 'all' ? 'all' : Number(el.dataset.ci);
     return resolveAiDelete(Number(el.dataset.mi), ci, act === 'ai-del');
   }
   if (act === 'ai-clear') { S.aiMsgs = []; saveAiMsgs(); return openAi(); }
-  if (act === 'ai-close' || (act === 'ai-close-bd' && e.target === el)) { S.ai = false; return render(); }
+  if (act === 'ai-close') { S.ai = false; return render(); }
   // 색은 고정 팔레트에서만 고른다 — 자유 선택은 대비를 지킬 수 없고 색이 무한정 늘어난다
   if (act === 'opt-color') { S.optColor = S.optColor === Number(id) ? null : Number(id); return render(); }
   if (act === 'opt-swatch') { S.optColor = null; return mutate(() => send(`/api/options/${id}`, 'PATCH', { color: el.dataset.color })); }
@@ -1937,7 +1972,6 @@ document.getElementById('open-settings')?.addEventListener('click', () => {
   S.modal = S.archive = null; S.error = ''; S.settings = 'status'; render();
 });
 document.getElementById('new-task')?.addEventListener('click', () => (S.qbar ? document.getElementById('qb-input')?.focus() : openQuickBar()));
-document.getElementById('open-ai')?.addEventListener('click', openAi);
 document.getElementById('show-arch-notes')?.addEventListener('click', () => { S.showArchivedNotes = !S.showArchivedNotes; render(); });
 // 요약의 접힌 구역 — <details>의 toggle은 버블링하지 않아 캡처 단계에서 받는다.
 // 렌더가 innerHTML을 갈아끼워도 open 속성은 S.sumOpen에서 다시 그려진다.
@@ -1974,8 +2008,9 @@ document.addEventListener('keydown', (e) => {
       S.hsel = (S.hsel + (e.key === 'ArrowDown' ? 1 : -1) + palItems.length) % palItems.length;
       return drawPalette();
     }
+    if (e.key === 'Enter' && !e.repeat && homeChat()) { e.preventDefault(); const t = S.hq.trim(); if (t && !S.aiBusy) { setHq(''); sendAi(t); } return; }
     if (e.key === 'Enter' && !e.repeat) { e.preventDefault(); return runPal(S.hsel); }
-    if (e.key === 'Escape') { e.preventDefault(); return setHq(''); }
+    if (e.key === 'Escape' && !(homeChat() && !S.hq)) { e.preventDefault(); return setHq(''); }
   }
   // Ctrl(⌘)+K — 홈 입력창. 모달이 떠 있으면 .app이 inert라 포커스가 가지 않는다.
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && document.getElementById('h-q')) {
@@ -2011,7 +2046,6 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.id === 'pc-title') { e.preventDefault(); saveQuickChild(true); }
   if (e.key === 'Enter' && e.target.id === 'd-newsub') { e.preventDefault(); addSubtask(); }
   if (e.key === 'Enter' && e.target.id === 'd-log') { e.preventDefault(); addProgress(); }
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.target.id === 'ai-input') { e.preventDefault(); sendAi(); }
   if (e.key === 'Enter' && e.target.id === 's-new') { e.preventDefault(); addOption(); }
   if (e.key === 'Enter' && e.target.dataset?.act === 'opt-name') e.target.blur();
   // 전역 단축키 — 입력 중이거나 모달·빠른 추가가 열려 있으면 무시
@@ -2024,7 +2058,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 // 헤더 보조 버튼을 아이콘 버튼으로 — 6개 HTML을 고치지 않고 여기서 한 번에 바꾼다. 원래 글자는 숨긴 라벨로 남긴다.
-for (const [id, icon] of [['hide-done', 'eyeOff'], ['show-arch-notes', 'archive'], ['open-archive', 'archive'], ['open-settings', 'settings'], ['open-ai', 'sparkles']]) {
+for (const [id, icon] of [['hide-done', 'eyeOff'], ['show-arch-notes', 'archive'], ['open-archive', 'archive'], ['open-settings', 'settings']]) {
   const b = document.getElementById(id);
   if (!b) continue;
   const label = b.textContent.trim();
@@ -2037,4 +2071,4 @@ const qEl = document.getElementById('q');
 if (qEl) { qEl.value = S.query; qEl.title = '단축키: /'; } // 검색창은 정적 DOM이라 복원값을 한 번 넣어 준다
 const newBtn = document.getElementById('new-task');
 if (newBtn) newBtn.title = '단축키: n';
-reload().catch((e) => { document.getElementById('viewport').innerHTML = `<div class="card empty">서버 연결 실패: ${esc(e.message)}</div>`; });
+reload().then(() => { if (S.view === 'home' && adviceStale()) requestAdvice(); }).catch((e) => { (document.getElementById('viewport') ?? document.getElementById('h-cards')).innerHTML = `<div class="card empty">서버 연결 실패: ${esc(e.message)}</div>`; });
